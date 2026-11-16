@@ -1,0 +1,27 @@
+# Collected market data must never be committed to this public repo
+# (AHledger terms). It lives in the private Coppertrail_Data repo.
+data/
+*.parquet
+*.duckdb
+*.duckdb.wal
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local tooling
+.claude/settings.local.json
+.idea/
+.vscode/
+Thumbs.db
+
+# Private handover and design package (lives in the private repo)
+private/
