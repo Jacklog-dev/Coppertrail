@@ -4,7 +4,34 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-No code yet. The public repo holds only docs so far. **`private/handover/HANDOVER.md` is the spec. Read it before you start any work.** Section 8b is the visual design, and section 9 is the order of work. Once the toolchain exists, add the build, lint and test commands here.
+The collector exists (HANDOVER section 9, steps 1 to 3). There are no pattern jobs and no GUI yet. **`private/handover/HANDOVER.md` is the spec. Read it before you start any work.** Section 8b is the visual design, and section 9 is the order of work.
+
+## Commands
+
+The toolchain is [uv](https://docs.astral.sh/uv/) with Python 3.12 (pinned in `.python-version`).
+
+```bash
+uv sync                                   # create .venv, install deps and dev tools
+uv run pytest -q                          # tests (offline, mocked HTTP)
+uv run ruff check .                       # lint
+uv run ruff format .                      # format
+uv run python -m coppertrail.collector run            # one collector run into ./private (~40 min)
+uv run python -m coppertrail.collector --data-dir DIR run --max-items 3   # quick live smoke test
+uv run python -m coppertrail.collector gaps           # gap report for the latest watchlist
+```
+
+Collector notes:
+- The data dir defaults to `$COPPERTRAIL_DATA`, or `./private` if that is unset. Optional overrides go in `<data-dir>/collector.toml` under a `[collector]` table, with the field names from `coppertrail/collector/config.py`.
+- Exit codes: 0 ok or partial, 1 failed, 2 another run holds the lock, 3 the `API_ARCHIVE_UNTIL` cutoff was reached or archiving is disabled.
+- Each fetched item is staged in `<data-dir>/.staging/<run_id>/` and merged into the day files at the end of the run. Rerunning after a crash resumes the run, as long as it started within the last 12 h.
+- Day-file tables: `hourly`, `scans`, `snapshot`, `economy`, `items`, `watchlist`, `runs`, `gaps`, `population`. Logs go to `<data-dir>/logs/`.
+
+## Verified API facts (2026-11-16)
+
+- Price table columns 5 to 8 are the 7-day median, 30-day median, 30-day low and 30-day high. They are documented on the developers page and match `/prices` `latest`.
+- A `range=24h` point has the same fields as a 7d point: `{t, min, median, p25, p75, quantity, auctions}`, with one point per full scan.
+- The price table has no quality field. Quality comes from `/v1/tooltip` (100 items per request) and is cached in `items/`.
+- The population CSV on `ahledger.com` sits behind a Vercel bot check that scripts do not pass. The collector logs it as skipped. Do not try to get around the check.
 
 Coppertrail is a local auction house analysis tool for WoW Forever (market `forever.normal.alliance.eu`). It collects price history from the AHledger API into a private Parquet archive, runs pattern jobs over it, and shows the results in a desktop GUI. Code, comments and conversation are in English.
 
@@ -36,8 +63,7 @@ Coppertrail is a local auction house analysis tool for WoW Forever (market `fore
 
 These are unconfirmed in the handover:
 
-- Price table columns 5 to 8.
-- The fields of a `range=24h` point.
+- Price table columns 5 to 8, and the fields of a `range=24h` point: verified 2026-11-16, see above.
 - Whether `/api/catalog` provides subclasses.
 - Whether Caudex has tabular figures.
 - Current GitHub free-tier minutes.
