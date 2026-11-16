@@ -44,7 +44,7 @@ Coppertrail is a local auction house analysis tool for WoW Forever (market `fore
 
 - **Never commit collected data to the public repo.** Doing so would redistribute AHledger data, which their terms forbid. Put the data directory in `.gitignore` from the first commit.
 - The README must credit "Prices from AHledger" with a link and state that the repo ships no data. The GUI status strip shows the same credit at all times.
-- The private repo's workflow checks out the public code, runs the collector once a day (about 40 min, with `timeout-minutes` set) and commits the new day files to itself.
+- The private repo's workflow checks out the public code, runs the collector once a day (about 40 min, with `timeout-minutes` set) and commits the new day files to itself. It lives in `private/.github/workflows/collect.yml`: its first step, before any checkout, disables the workflow once the date is past `API_ARCHIVE_UNTIL` (2026-12-09) and fails that one run so Jack gets the e-mail. No further runs use minutes. Re-enable (`gh workflow enable collect.yml`) only on Jack's word.
 - **Local layout:** `private/` is a separate clone of `Coppertrail_Data`, gitignored here (deliberately not a submodule: the public repo must not reference the private one). The handover and design package are in `private/handover/` (index in its `README.md`). Run git commands for data and handover inside `private/`.
 
 ## Architecture (planned, see HANDOVER sections 2, 8 and 8a)

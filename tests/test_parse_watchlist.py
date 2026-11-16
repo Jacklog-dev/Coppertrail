@@ -101,3 +101,13 @@ def test_load_config(tmp_path):
     p.write_text("[collector]\nnope = 1\n")
     with pytest.raises(ValueError):
         load_config(p)
+
+
+def test_env_overrides_archive_until(tmp_path, monkeypatch):
+    p = tmp_path / "c.toml"
+    p.write_text('[collector]\napi_archive_until = "2027-01-01"\n')
+    monkeypatch.setenv("COPPERTRAIL_API_ARCHIVE_UNTIL", "2026-12-09")
+    cfg = load_config(p)
+    assert cfg.api_archive_until == date(2026, 12, 9)
+    assert check_cutoff(cfg, date(2026, 12, 9)).allowed
+    assert not check_cutoff(cfg, date(2026, 12, 10)).allowed

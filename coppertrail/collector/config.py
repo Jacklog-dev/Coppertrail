@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tomllib
 from dataclasses import dataclass, field, fields
 from datetime import date
@@ -91,8 +92,16 @@ class Config:
 def load_config(path: Path | None) -> Config:
     """Load overrides from a TOML file with a [collector] table (missing file = defaults)."""
     cfg = Config()
-    if path is None or not path.exists():
-        return cfg
+    if path is not None and path.exists():
+        _apply_toml(cfg, path)
+    # The CI workflow sets this so its own date gate and the collector share one value.
+    env_until = os.environ.get("COPPERTRAIL_API_ARCHIVE_UNTIL")
+    if env_until:
+        cfg.api_archive_until = date.fromisoformat(env_until)
+    return cfg
+
+
+def _apply_toml(cfg: Config, path: Path) -> None:
     with path.open("rb") as fh:
         data = tomllib.load(fh).get("collector", {})
     known = {f.name: f for f in fields(Config)}
@@ -104,7 +113,6 @@ def load_config(path: Path | None) -> Config:
         if key in ("pinned", "exclude_qualities"):
             value = tuple(value)
         setattr(cfg, key, value)
-    return cfg
 
 
 @dataclass
