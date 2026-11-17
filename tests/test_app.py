@@ -76,6 +76,7 @@ def test_pull_always_reports_even_if_reload_fails(monkeypatch, archive, config_d
     (event, payload), *_ = events
     assert event == "pull" and payload["ok"] is False
     assert "schema changed" in payload["detail"]
+    assert payload["failure"]["title"] == "Pull failed"
 
 
 def test_pull_reload_waits_for_the_bridge_lock(monkeypatch, archive, config_dir):
@@ -128,3 +129,20 @@ def test_js_facade_uses_the_bridge_lock(archive, config_dir):
         t.start()
         assert not done.wait(0.3)
     assert done.wait(10)
+
+
+def test_failed_pull_event_carries_failure_state(monkeypatch, archive, config_dir):
+    from coppertrail.ui.pull import FAILED, PullResult
+
+    monkeypatch.setattr(
+        "coppertrail.ui.app.run_pull",
+        lambda d: PullResult(False, FAILED, "fatal: could not read from remote", 128),
+    )
+    events = []
+    api = AppApi(archive, emit=lambda event, payload: events.append((event, payload)))
+    api.pull_latest()
+    api.wait_for_pull(timeout=10)
+    (event, payload), *_ = events
+    assert payload["failure"]["cause"] == "git stopped: could not read from remote."
+    assert "exit 128" in payload["failure"]["request"]
+    assert payload["state"]["status"]["empty"] is False

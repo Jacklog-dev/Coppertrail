@@ -14,14 +14,14 @@ import threading
 import time
 import webbrowser
 from collections.abc import Callable
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, ClassVar
 
 from coppertrail.ui import tokens
 from coppertrail.ui.bridge import AHLEDGER_URL, Bridge
 from coppertrail.ui.devserver import WEB_DIR, serve
-from coppertrail.ui.pull import run_pull
+from coppertrail.ui.pull import PullResult, run_pull
 
 Emit = Callable[[str, dict], None]
 FOLDER_CHANGED = "Pull finished, but the data folder changed meanwhile"
@@ -80,21 +80,23 @@ class AppApi(Bridge):
             # Always emits, so the page never stays at "Pulling…". git runs unlocked; the
             # reload and state() hold the bridge lock, like every JS call.
             try:
-                result = asdict(run_pull(folder))
+                result = run_pull(folder)
                 with self.lock:
-                    if result["ok"] and self.data_dir != folder:
-                        result = {**result, "ok": False, "message": FOLDER_CHANGED}
-                    elif result["ok"]:
+                    if result.ok and self.data_dir != folder:
+                        result = replace(result, ok=False, message=FOLDER_CHANGED)
+                    elif result.ok:
                         self._load()
-                    payload = {**result, "state": self.state()}
+                    payload = {
+                        **asdict(result),
+                        "failure": self.pull_failure(result),
+                        "state": self.state(),
+                    }
             except Exception as exc:  # noqa: BLE001
-                payload = {
-                    "ok": False,
-                    "message": PULL_CRASHED,
-                    "detail": f"{type(exc).__name__}: {exc}",
-                }
+                crashed = PullResult(False, PULL_CRASHED, f"{type(exc).__name__}: {exc}")
+                payload = {**asdict(crashed)}
                 try:
                     with self.lock:
+                        payload["failure"] = self.pull_failure(crashed)
                         payload["state"] = self.state()
                 except Exception:  # noqa: BLE001
                     pass

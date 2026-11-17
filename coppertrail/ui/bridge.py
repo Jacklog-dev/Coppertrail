@@ -10,7 +10,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 from dataclasses import asdict
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -25,7 +25,7 @@ from coppertrail.query.filtering import apply_filters, date_window, item_classes
 from coppertrail.query.groups import ItemGroup, load_groups, save_groups
 from coppertrail.query.settings import Filters, load_settings, save_settings
 from coppertrail.ui import format as fmt
-from coppertrail.ui.pull import NOT_A_CLONE, can_pull, run_pull
+from coppertrail.ui.pull import COMMAND, NO_GIT, NOT_A_CLONE, PullResult, can_pull, run_pull
 
 AHLEDGER_URL = "https://ahledger.com"
 STALE_AFTER_DAYS = 2
@@ -75,6 +75,78 @@ def group_from_dict(d: dict) -> ItemGroup:
 
 def _iso(d) -> str | None:
     return d.isoformat() if d else None
+
+
+def _sentence(text: str) -> str:
+    text = text.strip()
+    return text if text.endswith((".", "!", "?")) else text + "."
+
+
+def _git_cause(result: PullResult) -> str:
+    """One sentence on why the pull failed, from git's own last complaint."""
+    if result.message == NO_GIT:
+        return _sentence(
+            f"git could not be started: {result.detail}"
+            if result.detail
+            else "git could not be started"
+        )
+    lines = [ln.strip() for ln in result.detail.splitlines()]
+    for line in reversed(lines):
+        for prefix in ("fatal:", "error:"):
+            if line.lower().startswith(prefix):
+                return _sentence(f"git stopped: {line[len(prefix) :].strip()}")
+    if result.message.startswith("Pull failed"):
+        return "git pull did not finish."
+    return _sentence(result.message)
+
+
+def pull_failure(result: PullResult, *, as_of: datetime | None, at: datetime) -> dict:
+    """The "Pull failed" state (HANDOVER 8b States): cause, reassurance, request line, log."""
+    if as_of is None:
+        reassurance = "Nothing in the data folder was changed."
+    else:
+        reassurance = (
+            "Your local archive is unchanged — everything up to "
+            f"{fmt.short_datetime(as_of)} is still here."
+        )
+    request = [COMMAND]
+    if result.returncode is not None:
+        request.append(f"exit {result.returncode}")
+    request.append(fmt.clock(at))
+    return {
+        "title": "Pull failed",
+        "cause": _git_cause(result),
+        "reassurance": reassurance,
+        "request": " · ".join(request),
+        "log": result.detail or "git printed nothing.",
+    }
+
+
+def history_gap(
+    name: str,
+    *,
+    needed: int,
+    have: int,
+    ready_on: date | None,
+    unit: str = "day",
+    missing_days: int | None = None,
+) -> dict:
+    """The "Too little history" state for a pattern tab.
+
+    `needed`/`have` count `unit`s (days, resets, weekends); `missing_days` is how many days
+    of data are still missing (defaults to `needed - have` for days).
+    """
+    missing = missing_days if missing_days is not None else max(0, needed - have)
+    return {
+        "title": fmt.needs_more(missing),
+        "why": (
+            f"“{name}” needs {plural(needed, unit)} of history. The archive covers "
+            f"{fmt.thousands(have)} so far — too few to separate a pattern from noise."
+        ),
+        "progress": f"{fmt.thousands(have)} of {plural(needed, unit)}",
+        "ready": f"ready around {fmt.day(ready_on)}" if ready_on else "",
+        "pct": round(100 * min(1.0, have / needed), 1) if needed else 100.0,
+    }
 
 
 class Bridge:
@@ -149,9 +221,24 @@ class Bridge:
         else:
             text = f"Data as of {fmt.local_datetime(st.as_of)}"
         pullable = can_pull(self.data_dir)
+        as_of = st.as_of
         return {
             "text": text,
             "stale": stale,
+            "ageDays": None if age is None else int(age),
+            "lastPoint": int(as_of.timestamp()) if as_of else None,
+            "now": int(self._now().timestamp()),
+            "noDataSince": (
+                f"no data since {fmt.short_datetime(as_of).replace(',', '')}" if as_of else ""
+            ),
+            "banner": (
+                {
+                    "title": f"Data is {int(age)} days old.",
+                    "detail": f"Charts end on {fmt.short_datetime(as_of)}.",
+                }
+                if stale and not self.load_error
+                else None
+            ),
             "error": bool(self.load_error),
             "errorDetail": self.load_error,
             "empty": st.empty,
@@ -196,12 +283,59 @@ class Bridge:
                 "archiveFrom": _iso(self.status.first_day),
                 "archiveTo": _iso(self.status.last_day),
             },
+            "noMatch": self._no_match(shown),
             "items": {
                 "shown": len(shown),
                 "total": len(self.items),
                 "sub": f"{fmt.thousands(len(shown))} of {plural(len(self.items), 'item')}",
                 "rows": [item_row(i) for i in shown[:PREVIEW_ROWS]],
             },
+        }
+
+    def _no_match(self, shown: list[Item]) -> dict | None:
+        """Chips per active item filter and the single filter whose removal helps most.
+
+        The date range never drops items, so it gets no chip.
+        """
+        if shown or not self.items:
+            return None
+        f = self.filters
+        names = {g.name for g in self.groups}
+        groups = [n for n in f.groups if n in names]
+        chips: list[dict] = []
+        if groups:
+            label = "Group" if len(groups) == 1 else "Groups"
+            chips.append({"label": f"{label}: {', '.join(groups)}", "clear": {"groups": []}})
+        if f.item_class:
+            chips.append({"label": f"Class: {f.item_class}", "clear": {"item_class": ""}})
+        if f.search.strip():
+            chips.append({"label": f"Search: “{f.search.strip()}”", "clear": {"search": ""}})
+        if f.min_sales:
+            chips.append(
+                {
+                    "label": f"Min sales/day ≥ {fmt.thousands(f.min_sales)}",
+                    "clear": {"min_sales": 0},
+                }
+            )
+        best: tuple[int, str] | None = None
+        for chip in chips:
+            relaxed = Filters.from_json({**f.to_json(), **chip["clear"]})
+            n = len(apply_filters(self.items, self.groups, relaxed))
+            if n and (best is None or n > best[0]):
+                best = (n, chip["label"])
+        hint = (
+            {
+                "prefix": "Closest: without",
+                "label": best[1],
+                "result": f"→ {plural(best[0], 'item')}",
+            }
+            if best
+            else None
+        )
+        return {
+            "sub": f"0 of {plural(len(self.items), 'item')} · remove one to widen the search",
+            "chips": chips,
+            "hint": hint,
         }
 
     # Filters -----------------------------------------------------------------
@@ -276,8 +410,13 @@ class Bridge:
         self._load()
         return self.state()
 
+    def pull_failure(self, result: PullResult) -> dict | None:
+        if result.ok:
+            return None
+        return pull_failure(result, as_of=self.status.as_of, at=self._now())
+
     def pull_latest(self) -> dict:
         result = run_pull(self.data_dir)
         if result.ok:
             self._load()
-        return asdict(result)
+        return {**asdict(result), "failure": self.pull_failure(result)}

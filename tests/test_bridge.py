@@ -142,7 +142,13 @@ def test_group_editor_helpers(archive, config_dir):
 
 def test_pull_on_non_clone_reports(archive, config_dir):
     r = Bridge(archive, now=NOW).pull_latest()
-    assert r == {"ok": False, "message": "The data folder is not a git clone", "detail": ""}
+    assert {k: r[k] for k in ("ok", "message", "detail", "returncode")} == {
+        "ok": False,
+        "message": "The data folder is not a git clone",
+        "detail": "",
+        "returncode": None,
+    }
+    assert r["failure"]["title"] == "Pull failed"
 
 
 def test_exposed_methods_exist():
