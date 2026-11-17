@@ -1,0 +1,55 @@
+/* Filter bar and its popovers (HANDOVER 8b "Filter bar", FilterBar mock-up). */
+
+.filterbar .group-pair { display: flex; align-items: center; gap: var(--space-1); min-width: 0; }
+.filterbar .groups { max-width: 280px; }
+.filterbar .search { width: 220px; flex: none; }
+.filterbar .minsales input { width: 52px; border: 0; background: transparent; outline: none; color: var(--text1); font-size: var(--type-sub-size); text-align: right; }
+.filterbar .spacer { flex: 1; min-width: var(--space-2); }
+.filterbar .active-state { display: flex; align-items: center; gap: 10px; padding-left: var(--space-1); flex: none; }
+.filterbar .active-label { display: inline-flex; align-items: center; gap: 6px; font-size: var(--type-small-size); color: var(--accent); font-weight: 700; white-space: nowrap; }
+.filterbar .no-filters { font-size: var(--type-small-size); color: var(--text3); white-space: nowrap; }
+.ctl .chev { color: var(--text3); }
+
+/* Popover content ------------------------------------------------------------- */
+.pop-groups { width: 340px; padding: 0; overflow: hidden; }
+.pop-groups .pop-search { padding: 10px var(--space-3); border-bottom: 1px solid var(--border); }
+.pop-groups .pop-summary { display: flex; justify-content: space-between; padding: var(--space-2) var(--space-3) var(--space-1); font-size: var(--type-small-size); color: var(--text3); }
+.pop-groups .pop-summary span { display: flex; gap: 10px; }
+.pop-groups .rows { max-height: 320px; overflow: auto; }
+.pop-row {
+  display: flex; align-items: center; gap: 10px; height: var(--size-row-h); padding: 0 var(--space-3);
+  font-size: var(--type-sub-size); width: 100%; border: 0; background: transparent; text-align: left; color: var(--text1);
+}
+.pop-row:hover, .pop-row[aria-checked="true"] { background: var(--raised); }
+.pop-row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pop-row .count { font-size: var(--type-small-size); color: var(--text3); }
+.pop-groups .pop-foot { border-top: 1px solid var(--border); padding: var(--space-2) var(--space-3); display: flex; justify-content: space-between; }
+
+.pop-date { width: 320px; display: flex; flex-direction: column; gap: var(--space-3); }
+.pop-date .seg { width: 100%; }
+.pop-date .seg button { flex: 1; }
+.pop-date .fromto { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+.pop-date .fromto label { display: grid; gap: var(--space-1); font-size: var(--type-small-size); color: var(--text3); }
+.pop-date .fromto .input { color: var(--text1); font-size: var(--type-sub-size); }
+.pop-date .note { font-size: var(--type-small-size); color: var(--text3); }
+
+.calendar { display: grid; gap: var(--space-2); }
+.cal-head { display: flex; justify-content: space-between; align-items: center; font-size: var(--type-sub-size); font-weight: 700; }
+.cal-nav { display: flex; gap: var(--space-1); }
+.cal-nav .btn { padding: 0 6px; }
+.cal-prev .icon { transform: rotate(90deg); }
+.cal-next .icon { transform: rotate(-90deg); }
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
+.cal-weekdays { font-size: var(--type-small-size); color: var(--text3); text-align: center; }
+.cal-day {
+  height: 30px; display: flex; align-items: center; justify-content: center; font-size: var(--type-small-size);
+  border: 0; border-radius: var(--radius-card); background: transparent; color: var(--text1);
+}
+.cal-day:hover:not(:disabled) { background: var(--raised); }
+.cal-day:disabled { color: var(--textDis); }
+.cal-day.inside { background: var(--accentMuted); }
+.cal-day.end { background: var(--accent); color: var(--accentOn); font-weight: 700; }
+
+.pop-sales { width: 280px; display: flex; flex-direction: column; gap: var(--space-3); }
+.pop-sales .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.pop-sales .note { font-size: var(--type-small-size); color: var(--text3); }
