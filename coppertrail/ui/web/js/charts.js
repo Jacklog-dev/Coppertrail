@@ -1,4 +1,4 @@
-// uPlot charts styled by the CHART tokens (HANDOVER 8b "Charts", formerly "in pyqtgraph"):
+// uPlot charts styled by the CHART tokens (HANDOVER 8b "Charts in uPlot"):
 // horizontal grid only, dashed reference lines and crosshair, 8 px hover dots with a
 // 2 px surface ring, a tooltip that flips left near the right edge, drag to zoom.
 import uPlot from "../vendor/uPlot.esm.js";

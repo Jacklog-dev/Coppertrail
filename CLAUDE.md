@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-The collector exists (HANDOVER section 9, steps 1 to 3). The GUI theme (step 6.1) and window frame (step 6.2: nav rail, filter bar, group editor, status strip) exist; the four views are placeholders listing the filtered items. There are no pattern jobs yet. **`private/handover/HANDOVER.md` is the spec. Read it before you start any work.** Section 8b is the visual design, and section 9 is the order of work.
+The collector exists (HANDOVER section 9, steps 1 to 3). The GUI theme (step 6.1) and window frame (step 6.2: nav rail, filter bar, group editor, status strip) exist, rebuilt on pywebview + HTML/CSS/JS on 2026-11-17 (no Qt, see `docs/superpowers/specs/2026-11-17-webview-gui-design.md`); the four views are placeholders listing the filtered items. There are no pattern jobs yet. **`private/handover/HANDOVER.md` is the spec. Read it before you start any work.** Section 8b is the visual design, and section 9 is the order of work.
 
 ## Commands
 
@@ -18,8 +18,11 @@ uv run ruff format .                      # format
 uv run python -m coppertrail.collector run            # one collector run into ./private (~40 min)
 uv run python -m coppertrail.collector --data-dir DIR run --max-items 3   # quick live smoke test
 uv run python -m coppertrail.collector gaps           # gap report for the latest watchlist
-uv run python -m coppertrail.ui                       # the GUI (--data-dir DIR for one session, --screenshot PNG)
-uv run python -m coppertrail.ui.sample                # GUI style sample window (--light, --screenshot PNG)
+uv run python -m coppertrail.ui                       # the GUI window (--data-dir DIR for one session, --size WxH)
+uv run python -m coppertrail.ui --dev --port 8765     # serve the page on 127.0.0.1 for a normal browser
+uv run python -m coppertrail.ui --screenshot shot.png # headless Edge screenshot (--size, --sample, --data-dir)
+uv run python -m coppertrail.ui --sample              # style sample page (combine with --dev or --screenshot)
+uv run python -m coppertrail.ui.webtheme              # regenerate web/css/tokens.css after editing tokens.py
 ```
 
 Collector notes:
@@ -29,14 +32,16 @@ Collector notes:
 - Day-file tables: `hourly`, `scans`, `snapshot`, `economy`, `items`, `watchlist`, `runs`, `gaps`, `population`. Logs go to `<data-dir>/logs/`.
 
 GUI notes:
-- PySide6 (`pyside6-essentials`) and pyqtgraph sit in the `gui` extra, pulled in by the dev group. The collector workflow runs `uv sync --no-dev`, so it does not install them.
-- `coppertrail/ui/`: `tokens.py` (design tokens), `theme.qss` (template filled with `str.format_map`), `theme.py` (fonts, `font(role)`, `color(token)`, `icon(name)`, `apply_theme`), `format.py` (coins, signed percent, dates; no Qt), `widgets.py` (Card, CoinLabel/CoinDelegate, ChangeDelegate, Dot, legend), `charts.py` (pyqtgraph styling).
-- `coppertrail/query/`: Qt-free query layer and user state. `catalog.py` (items with the latest snapshot price, archive status), `groups.py` (item groups: ids, name globs, exclusions; starter groups), `settings.py` (data folder and filters), `filtering.py` (apply filters, resolve the date range, clamped to the archive).
-- User settings and groups live in `%APPDATA%\Coppertrail` (or `~/.config/coppertrail`), never in the data repo. `$COPPERTRAIL_CONFIG` overrides the folder; tests use it.
-- `setStyleSheet` on the QApplication resets the Windows per-class fonts (Segoe UI in item views and menus), so `theme.apply_theme` sets class fonts after the stylesheet.
-- `::item` rules on a QTableView also hit QCalendarWidget's internal view and hide its date formats. Data tables carry `role="data"` and the row rules target only those.
-- QSS must not set `font-family`/`font-size` or `background` on plain `QWidget`: the first beats `setFont` (which breaks Almendra and the type scale), the second paints every layout container.
-- Caudex Regular has equal-width digits; Caudex Bold does not (narrow "1"), so keep numeric columns at weight 400. Caudex lacks ▲ ▼ ●: dots are painted (`Dot`), arrows come from the system fallback font (Segoe UI Symbol on Windows).
+- No Qt, ever (Jack's rule): a test fails if PySide/PyQt/qtpy/pyqtgraph appear in `uv.lock` or as imports. `[tool.uv] environments` limits the lock to win32/linux/darwin because pywebview lists qtpy for OpenBSD.
+- pywebview sits in the `gui` extra, pulled in by the dev group. The collector workflow runs `uv sync --no-dev`, so it does not install it. Backends: EdgeChromium (WebView2) on Windows, GTK on Linux, Cocoa on macOS; never `gui="qt"`.
+- `coppertrail/ui/`: `bridge.py` (all GUI data as JSON-able dicts, Qt- and pywebview-free, `Bridge.EXPOSED` lists what JS may call), `app.py` (window, CLI, `AppApi` adds folder picker, credit link and a threaded pull that reports via a `pull` event), `devserver.py` (127.0.0.1-only HTTP server for `--dev`/`--screenshot`, never a normal start), `pull.py` (`git pull --ff-only`, never raises), `screenshot.py` (headless Edge), `webtheme.py` (tokens.py -> `web/css/tokens.css`), `tokens.py`, `format.py`.
+- `coppertrail/ui/web/`: plain HTML/CSS/ES modules, no build step, no Node. `js/api.js` is the only way to Python: `call(name, ...args)` uses pywebview's `js_api` in the app and `POST /api/<name>` on the dev server (it tells them apart with `GET /api`, because pywebview injects `window.pywebview` after modules start). pywebview gets a facade (`js_facade`) with only the exposed methods, since it walks every public attribute of `js_api`.
+- `web/css/tokens.css` is generated and committed; `test_webtheme.py` fails when it is stale. CSS and JS outside it must not contain hex colours or font names (`test_web_offline.py`), and pages must load nothing remote (fonts via `@font-face`, uPlot 1.6.31 vendored in `web/vendor/`, CSP meta in every page).
+- JS writes data strings with `textContent` (the `el()` helper in `js/dom.js`), never `innerHTML`. Display strings come from the bridge (`format.py`); the only JS formatters are chart axis coins (`axisCoins`) and chart dates (`charts.js`, en-GB, Europe/Berlin).
+- `coppertrail/query/`: query layer and user state. `catalog.py` (items with the latest snapshot price, archive status), `groups.py` (item groups: ids, name globs, exclusions; starter groups), `settings.py` (data folder and filters), `filtering.py` (apply filters, resolve the date range, clamped to the archive).
+- User settings and groups live in `%APPDATA%\Coppertrail` (or `~/.config/coppertrail`), never in the data repo. `$COPPERTRAIL_CONFIG` overrides the folder; tests use it, and so should any manual `--dev` session that clicks filters, or it changes Jack's real settings.
+- The filter bar and group editor re-render their DOM on every state change; they remember the open popover and the focused field (`data-focus`) and restore both.
+- Caudex Regular has equal-width digits; Caudex Bold does not (narrow "1"), so keep numeric columns at weight 400. Caudex lacks ▲ ▼ ●: dots and coin marks are CSS circles, arrows come from the font fallback in `--type-*-family` (Segoe UI Symbol on Windows).
 
 ## Verified API facts (2026-11-16)
 
@@ -61,7 +66,7 @@ Coppertrail is a local auction house analysis tool for WoW Forever (market `fore
 
 ## Architecture (planned, see HANDOVER sections 2, 8 and 8a)
 
-- **Stack:** Python 3.12, Parquet queried with DuckDB, PySide6 (Qt Widgets) with pyqtgraph.
+- **Stack:** Python 3.12, Parquet queried with DuckDB, pywebview (WebView2) with plain HTML/CSS/JS and uPlot. No Qt.
 - **Collector:** a platform-neutral CLI (`python -m collector run`) with no Windows-specific code. The scheduler (GitHub Actions, or Task Scheduler as a fallback) is only a thin wrapper around it.
   - Runs must be idempotent. Upsert on `HOURLY(item_id, hour)` and `SCAN_POINT(item_id, observed_at)`, and commit per item so an interrupted run resumes cleanly.
   - It runs without an API key: throttle to 30 requests/min and honour `Retry-After` on 429 and 503.
@@ -82,7 +87,7 @@ These are unconfirmed in the handover:
 
 ## Design rules (HANDOVER 8b, enforce in review)
 
-- All colours, fonts and sizes come from `coppertrail/ui/tokens.py` (copied from `private/handover/ui/tokens.py`) and the QSS template. Widget code must not hard-code colours or font names.
+- All colours, fonts and sizes come from `coppertrail/ui/tokens.py` (copied from `private/handover/ui/tokens.py`) and the generated `web/css/tokens.css`. CSS and JS must not hard-code colours or font names.
 - Almendra is used only for h1 and card titles, always uppercase. Everything else is Caudex.
 - One 1 px border per panel. No ornaments, shadows, gradients or textures.
 - Copper means "selected or primary" only. Coin colours are for price values only.

@@ -3,9 +3,14 @@
 Auction house market analysis for WoW Forever. Coppertrail collects price
 history into a local archive, looks for patterns and outliers (daily rhythm,
 mispricings, supply shocks, processing spreads, inflation), and shows them in
-a desktop app built with PySide6 and pyqtgraph.
+a desktop app (pywebview with an HTML/CSS front end and uPlot charts).
 
-**Status:** early. The collector works. Pattern jobs and the GUI come next.
+**Status:** early. The collector works. The GUI window frame and filters work;
+its views and the pattern jobs come next.
+
+```bash
+uv run python -m coppertrail.ui --data-dir path/to/your/private/data
+```
 
 ## Collector
 
@@ -39,3 +44,4 @@ Blizzard Entertainment and contains no game assets.
 ## License
 
 [MIT](LICENSE). The fonts it uses (Caudex, Almendra) are under the SIL Open Font License.
+The bundled chart library [uPlot](https://github.com/leeoniya/uPlot) is MIT licensed.
