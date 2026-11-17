@@ -48,7 +48,7 @@ GROUPS_COLS = [
     "median_supply_change",
     "median_excess_supply",
 ]
-WINDOW_COLS = ["item_id", "version", "offset_h", "price_idx", "supply_idx"]
+WINDOW_COLS = ["item_id", "version", "published_at", "offset_h", "price_idx", "supply_idx"]
 EFFECT_COLS = [
     "item_id",
     "build_id",
@@ -182,6 +182,7 @@ def effects(ctx: Context) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
                 }
             )
             w = s.window(at)
+            w.insert(0, "published_at", build["published_at"])
             w.insert(0, "version", build["version"])
             w.insert(0, "item_id", item_id)
             windows.append(w)

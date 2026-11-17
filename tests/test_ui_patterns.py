@@ -238,25 +238,17 @@ def test_bridge_patterns_selects_item_from_item_detail(market, config_dir):  # n
 
 
 def test_build_window_picks_the_run_of_that_build():
-    # Two builds share version 1.60.1; the job's window frame holds one run per build, each
-    # every hourly row within CHART_H of its build (so the runs are clipped differently).
-    from coppertrail.patterns.builds import CHART_H
-
+    # Two builds share version 1.60.1; the job's window frame tells them apart by published_at.
     t1 = pd.Timestamp("2026-11-10 15:38", tz="UTC")
     t2 = pd.Timestamp("2026-11-13 02:38", tz="UTC")
-    hours = pd.date_range("2026-11-10 13:00", "2026-11-13 05:00", freq="h", tz="UTC")
 
     def run(at, mark):
-        offs = [round((h - at) / pd.Timedelta(hours=1)) for h in hours]
-        offs = [o for o in offs if abs(o) <= CHART_H]
         return pd.DataFrame(
-            {"item_id": 1, "version": "1.60.1", "offset_h": offs, "price_idx": mark}
-        )
+            {"item_id": 1, "version": "1.60.1", "published_at": at, "offset_h": range(-3, 4),
+             "price_idx": mark}
+        )  # fmt: skip
 
     w = pd.concat([run(t1, 1.0), run(t2, 2.0)], ignore_index=True)
-
-    class Ctx:
-        hourly = pd.DataFrame({"item_id": 1, "hour": hours})
-
-    assert set(pv._build_window(w, Ctx, 1, "1.60.1", t1)["price_idx"]) == {1.0}
-    assert set(pv._build_window(w, Ctx, 1, "1.60.1", t2)["price_idx"]) == {2.0}
+    assert set(pv._build_window(w, None, 1, "1.60.1", t1)["price_idx"]) == {1.0}
+    assert set(pv._build_window(w, None, 1, "1.60.1", t2)["price_idx"]) == {2.0}
+    assert list(pv._build_window(w, None, 1, "1.60.1", t2)["offset_h"]) == list(range(-3, 4))
