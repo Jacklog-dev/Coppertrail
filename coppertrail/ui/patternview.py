@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 
 from coppertrail.patterns import REGISTRY, Context, PatternResult
+from coppertrail.patterns.builds import CHART_H
 from coppertrail.patterns.common import daily_prices
 from coppertrail.ui import format as fmt
 from coppertrail.ui.viewdata import (
@@ -324,7 +325,6 @@ TABLES: dict[str, Table] = {
             ITEM,
             Col("Events", "num", count_cell("events")),
             Col("Median depth", "change", change_cell("median_depth")),
-            Col("Deepest", "change", change_cell("deepest")),
             Col(
                 "Back after",
                 "num",
@@ -390,7 +390,6 @@ TABLES: dict[str, Table] = {
                     else "–"
                 ),
             ),
-            Col("Reset", "num", share_cell("reset_share")),
             SALES,
         ),
         (
@@ -597,7 +596,7 @@ def _span(r: PatternResult, *extra: str) -> str:
 def _hours_bars(
     r: PatternResult, title: str, label: str, color: str, frame: pd.DataFrame | None, sub: str
 ) -> dict:
-    if frame is None or frame.empty:
+    if frame is None or frame.empty or not (frame["events"] > 0).any():
         return note_chart(title, _span(r, sub), "Nothing found yet.")
     f = frame.set_index("hour").reindex(range(24)).fillna(0)
     s = [series(label, color, nums(f["events"], 0), bars=True)]
@@ -1130,16 +1129,41 @@ def charts_vendor(r: PatternResult, ctx: Context, row: pd.Series | None) -> list
     return out
 
 
+def _build_window(
+    w: pd.DataFrame | None, ctx: Context, item_id: int, version: str, at: pd.Timestamp | None
+) -> pd.DataFrame:
+    """The hourly window of one item around one build.
+
+    The job keys windows on the version only, and two builds can share a version, so the
+    rows hold one run per build (offsets restart). Pick the run whose hours, counted from
+    this build's time, are the item's own hourly rows.
+    """
+    if w is None or w.empty:
+        return pd.DataFrame()
+    w = w[(w["item_id"] == item_id) & (w["version"].astype(str) == version)]
+    if w.empty:
+        return w
+    # A new run starts where the offset falls back, or jumps further than one side of a window.
+    step = w["offset_h"].diff()
+    runs = [g for _, g in w.groupby(((step <= 0) | (step > CHART_H)).cumsum())]
+    if len(runs) > 1 and at is not None:
+        # The job's window is every hourly row within CHART_H of the build, so the right run
+        # covers exactly the item's hours in that span (offsets are rounded to whole hours).
+        own = _item_rows(ctx.hourly, item_id)
+        base = at.tz_convert("UTC")
+        span = pd.Timedelta(hours=CHART_H + 1)
+        hours = own["hour"] if "hour" in own else pd.Series(dtype="datetime64[ns, UTC]")
+        want = {round((h - base) / pd.Timedelta(hours=1)) for h in hours if abs(h - base) < span}
+        runs.sort(key=lambda g: len(want.symmetric_difference(int(o) for o in g["offset_h"])))
+    return runs[0].sort_values("offset_h")
+
+
 def charts_builds(r: PatternResult, ctx: Context, row: pd.Series | None) -> list[dict]:
     item_id, name = int(row["item_id"]), str(row["name"])
     version = str(row.get("build") or "")
     title = f"{name} — around build {version}".strip()
-    w = r.charts.get("window")
-    w = (
-        w[(w["item_id"] == item_id) & (w["version"].astype(str) == version)].sort_values("offset_h")
-        if w is not None and len(w)
-        else pd.DataFrame()
-    )
+    at = pd.Timestamp(row.get("published_at")) if pd.notna(row.get("published_at")) else None
+    w = _build_window(r.charts.get("window"), ctx, item_id, version, at)
     out = []
     if w.empty:
         out.append(note_chart(title, _span(r), "No hourly window around this build."))
@@ -1163,7 +1187,12 @@ def charts_builds(r: PatternResult, ctx: Context, row: pd.Series | None) -> list
             )
         )
     g = r.charts.get("groups")
-    g = g[g["version"].astype(str) == version] if g is not None and len(g) else pd.DataFrame()
+    if g is not None and len(g):
+        g = g[g["version"].astype(str) == version]
+        if at is not None and "published_at" in g:
+            g = g[pd.to_datetime(g["published_at"], utc=True) == at]
+    else:
+        g = pd.DataFrame()
     if len(g):
         bs = [series("Price beyond placebo", "s1", pct(g["median_excess_price"]), bars=True)]
         out.append(
@@ -1197,7 +1226,7 @@ def charts_inflation(r: PatternResult, ctx: Context, row: pd.Series | None) -> l
         for group, label, color in (
             ("scarce", "Scarce goods", "s1"),
             ("farmable", "Farmable goods", "s2"),
-            ("vendor-tied", "Vendor-tied goods", "s3"),
+            ("vendor", "Vendor-tied goods", "s3"),
         ):
             if group in wide.columns:
                 s.append(

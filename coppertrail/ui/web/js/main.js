@@ -13,7 +13,8 @@ import * as filterbar from "./filterbar.js";
 const $ = (id) => document.getElementById(id);
 const START_VIEWS = ["overview", "item", "patterns", "movers"];
 const ui = {
-  view: START_VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "overview", // #item opens Item detail (--view)
+  // #item opens Item detail (--view); #patterns/<key> and #movers/<range> open a tab (--tab).
+  view: START_VIEWS.includes(location.hash.slice(1).split("/")[0]) ? location.hash.slice(1).split("/")[0] : "overview",
   pulling: false,
   error: null, // {message, detail} for the status strip
   failure: null, // pull failure payload from the bridge: shows the "Pull failed" state
@@ -28,8 +29,13 @@ const nav = {
   get item() {
     return ui.item;
   },
+  // Counts go(view, {item}) calls, so a view can tell a fresh hand-over from a re-render.
+  handover: 0,
   go(id, { item } = {}) {
-    if (item != null) ui.item = item;
+    if (item != null) {
+      ui.item = item;
+      nav.handover += 1;
+    }
     selectView(id);
   },
   selectItem(id) {

@@ -152,7 +152,7 @@ def history_gap(
         "title": fmt.needs_more(missing),
         "why": (
             f"“{name}” needs {plural(needed, unit)} of history. The archive covers "
-            f"{fmt.thousands(have)} so far — too few to separate a pattern from noise."
+            f"{plural(have, unit)} so far — too few to separate a pattern from noise."
         ),
         "progress": f"{fmt.thousands(have)} of {plural(needed, unit)}",
         "ready": f"ready around {fmt.day(ready_on)}" if ready_on else "",
@@ -810,10 +810,12 @@ class Bridge:
             return {**out, "state": "error", "error": _failed(exc)}
         out["basis"] = pv.basis(result)
         if not result.ready:
+            if not result.days_used:
+                out["basis"]["lead"] = "No data yet"
             out["basis"]["text"] = (
                 f" of data so far · needs {plural(spec.min_days, 'day')}"
                 if result.days_used
-                else " of data so far"
+                else ""
             )
             out["state"] = "history"
             out["gap"] = history_gap(
@@ -825,6 +827,7 @@ class Bridge:
             return out
         if key in waiting:
             title, text = pv.WAITING[key]
+            out["basis"]["text"] = out["basis"]["text"].split(" · ")[0] + " · nothing to check yet"
             return {**out, "state": "waiting", "waiting": {"title": title, "text": text}}
         try:
             body = pv.build(result, ctx, select=select, item=item, sort=sort)

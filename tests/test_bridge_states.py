@@ -136,7 +136,7 @@ def test_history_gap_weeks():
     assert g == {
         "title": "Needs 3 more weeks of data",
         "why": (
-            "“Reset day” needs 42 days of history. The archive covers 21 so far — "
+            "“Reset day” needs 42 days of history. The archive covers 21 days so far — "
             "too few to separate a pattern from noise."
         ),
         "progress": "21 of 42 days",

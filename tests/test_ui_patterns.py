@@ -210,7 +210,7 @@ def test_events_jobs_chart_scans_with_markers():
     ]  # fmt: skip
     assert scan_chart["series"][0]["values"] == [100.0, 40.0, 100.0]
     assert hours["xKind"] == "hour" and hours["series"][0]["bars"]
-    assert p["table"]["rows"][0]["cells"][5] == "30 min"
+    assert p["table"]["rows"][0]["cells"][4] == "30 min"
 
 
 def test_bridge_patterns_states(market, config_dir):  # noqa: F811
@@ -235,3 +235,28 @@ def test_bridge_patterns_selects_item_from_item_detail(market, config_dir):  # n
     p = Bridge(market, now=NOW).patterns("daily_rhythm", item=8170)
     assert p["table"]["selected"] == 8170
     assert p["charts"][0]["title"].startswith("Rugged Leather")
+
+
+def test_build_window_picks_the_run_of_that_build():
+    # Two builds share version 1.60.1; the job's window frame holds one run per build, each
+    # every hourly row within CHART_H of its build (so the runs are clipped differently).
+    from coppertrail.patterns.builds import CHART_H
+
+    t1 = pd.Timestamp("2026-11-10 15:38", tz="UTC")
+    t2 = pd.Timestamp("2026-11-13 02:38", tz="UTC")
+    hours = pd.date_range("2026-11-10 13:00", "2026-11-13 05:00", freq="h", tz="UTC")
+
+    def run(at, mark):
+        offs = [round((h - at) / pd.Timedelta(hours=1)) for h in hours]
+        offs = [o for o in offs if abs(o) <= CHART_H]
+        return pd.DataFrame(
+            {"item_id": 1, "version": "1.60.1", "offset_h": offs, "price_idx": mark}
+        )
+
+    w = pd.concat([run(t1, 1.0), run(t2, 2.0)], ignore_index=True)
+
+    class Ctx:
+        hourly = pd.DataFrame({"item_id": 1, "hour": hours})
+
+    assert set(pv._build_window(w, Ctx, 1, "1.60.1", t1)["price_idx"]) == {1.0}
+    assert set(pv._build_window(w, Ctx, 1, "1.60.1", t2)["price_idx"]) == {2.0}

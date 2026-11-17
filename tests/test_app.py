@@ -157,3 +157,37 @@ def test_view_flag_opens_that_view(monkeypatch, archive, config_dir):
     app.main(["--data-dir", str(archive), "--screenshot", "x.png", "--view", "item"])
     app.main(["--data-dir", str(archive), "--view", "item"])
     assert pages == ["index.html#item", "index.html"]  # the window takes a file path
+
+
+def test_tab_flag_and_warm(monkeypatch, archive, config_dir):
+    from coppertrail.ui import app
+
+    pages = []
+    monkeypatch.setattr(app, "run_screenshot", lambda bridge, page, out, size: pages.append(page))
+    for view, tab in (("patterns", "mispricings"), ("movers", "24h"), ("item", "x")):
+        app.main(
+            ["--data-dir", str(archive), "--screenshot", "x.png", "--view", view, "--tab", tab]
+        )
+    assert pages == ["index.html#patterns/mispricings", "index.html#movers/24h", "index.html#item"]
+
+    calls = []
+
+    class Fake:
+        def __getattr__(self, name):
+            def f(*args):
+                calls.append((name, args))
+                if name == "overview":
+                    raise RuntimeError("left to the page")
+                return {"rows": [{"id": 7}]} if name == "item_list" else {}
+
+            return f
+
+    for page in ("index.html", "index.html#item", "index.html#patterns/daily_rhythm",
+                 "index.html#movers/30d"):  # fmt: skip
+        app.warm(Fake(), page)
+    assert calls == [
+        ("overview", ()), ("overview_events", ()),
+        ("item_list", ()), ("item_detail", (7,)),
+        ("patterns", ("daily_rhythm",)),
+        ("movers", ("30d",)), ("mispricings_now", ()),
+    ]  # fmt: skip

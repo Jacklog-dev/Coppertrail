@@ -168,9 +168,40 @@ def run_dev(bridge: Bridge, page: str, port: int) -> int:
     return 0
 
 
+# Bridge calls each view makes on its first render, warmed before a screenshot (see warm()).
+WARM_CALLS = {
+    "overview": ("overview", "overview_events"),
+    "item": ("item_list",),
+    "patterns": ("patterns",),
+    "movers": ("movers", "mispricings_now"),
+}
+
+
+def warm(bridge: Bridge, page: str) -> None:
+    """Fills the bridge cache for the page's view before headless Edge opens it.
+
+    Edge's --screenshot fires when its virtual time budget runs out and re-lays the page out at
+    the full --window-size only if the page is idle by then. A view still waiting for a slow
+    call (What changed takes about 12 s on the full archive) is captured at Edge's smaller
+    start-up viewport, leaving an unpainted band below and right of the app. Cached answers
+    come back at once, so the page is idle in time. Failures are left to the page to show.
+    """
+    view, _, tab = (page.split("#", 1)[1] if "#" in page else "overview").partition("/")
+    for name in WARM_CALLS.get(view, ()):
+        try:
+            call = getattr(bridge, name)
+            result = call(tab) if tab and name in ("patterns", "movers") else call()
+            if name == "item_list" and result.get("rows"):
+                bridge.item_detail(result["rows"][0]["id"])
+        except Exception:  # noqa: BLE001, S112 - the page shows its own error
+            continue
+
+
 def run_screenshot(bridge: Bridge, page: str, out: Path, size: tuple[int, int]) -> int:
     from coppertrail.ui.screenshot import take
 
+    if not page.startswith("sample"):
+        warm(bridge, page)
     server, url = serve(bridge)
     try:
         return take(url + page, out, size)
@@ -192,11 +223,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--view", choices=VIEW_IDS, help="open this view first (overview, item, patterns, movers)"
     )
+    parser.add_argument(
+        "--tab", metavar="KEY", help="with --view patterns: a pattern key; movers: 24h, 7d or 30d"
+    )
     args = parser.parse_args(argv)
 
     page = "sample.html" if args.sample else "index.html"
     if args.view and not args.sample:
         page += f"#{args.view}"
+        if args.view in ("patterns", "movers") and args.tab:
+            page += f"/{args.tab}"
     if args.dev:
         return run_dev(Bridge(args.data_dir), page, args.port)
     if args.screenshot:

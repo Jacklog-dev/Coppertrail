@@ -4,10 +4,11 @@ import { el } from "./dom.js";
 
 const SHORT_FROM_GOLD = 100;
 
-/** A price from the bridge ({parts: [[12, "g"], ...], text}) as number + coin mark pairs. */
+/** A price from the bridge ({parts: [[12, "g"], ...], text, neg?}) as number + coin mark pairs. */
 export function coin(value) {
   if (!value) return el("span", { class: "coin muted", text: "—" });
   const node = el("span", { class: "coin", attrs: { title: value.text, "aria-label": value.text } });
+  if (value.neg) node.append("−"); // a loss (processing margins): real minus sign
   value.parts.forEach(([amount, unit], idx) => {
     if (idx > 0) node.append(" ");
     node.append(el("span", { text: amount.toLocaleString("en-US") }), el("i", { class: unit }));
@@ -36,7 +37,9 @@ export function axisCount(v) {
  * The one formatter that lives in JS, because chart ticks are computed here.
  */
 export function axisCoins(copper) {
-  copper = Math.max(0, Math.round(copper));
+  copper = Math.round(copper);
+  if (copper < 0) return "−" + axisCoins(-copper); // margins below zero: real minus
+
   const gold = Math.floor(copper / 10000);
   if (gold >= SHORT_FROM_GOLD) return Math.round(copper / 10000).toLocaleString("en-US") + "g";
   const silver = Math.floor((copper % 10000) / 100);
@@ -46,4 +49,17 @@ export function axisCoins(copper) {
   if (silver) parts.push(silver + "s");
   if (cop) parts.push(cop + "c");
   return parts.join(" ") || "0c";
+}
+
+/** Axis and tooltip values already in percent: +6 %, −3.5 % (real minus). A chart formatter. */
+export function axisPercent(v) {
+  const r = Math.abs(v) < 10 && Math.round(v) !== v ? Math.round(v * 10) / 10 : Math.round(v);
+  if (r === 0) return "0 %";
+  return `${r > 0 ? "+" : "−"}${Math.abs(r).toLocaleString("en-US")} %`;
+}
+
+/** Signed index points for axes: +12, −27 (divergence). A chart formatter. */
+export function axisSigned(v) {
+  const r = Math.round(v);
+  return r === 0 ? "0" : `${r > 0 ? "+" : "−"}${Math.abs(r).toLocaleString("en-US")}`;
 }

@@ -73,14 +73,32 @@ Per job (charts left, table right; first chart follows the selected row):
   fallers: `{id, name, spark (hourly or daily prices), dir, price (latest snapshot min buyout),
   change, supply ("−62 % supply"), sales}`.
 - `mispricings_now(threshold)`: events of the `mispricings` job in the last 24 h of scans, the
-  latest per item, whose min is below `threshold` x the usual price (snapshot 30-day median).
+  latest per item, whose min is below `threshold` x the usual price. Usual = the job's own
+  reference (median p25 of the prior 6 h), not the mock-up's 30-day median: in a falling market
+  the snapshot's 30-day median lags far above every recent listing and every item looks cheap.
   Row: item + its first group, lowest buyout (event min), usual, discount (change), range bar
   (typical = median scan p25..p75 over the 24 h, usual tick, current diamond), quantity listed at
-  that scan, seen (local time). Thresholds below 50 / 60 / 70 / 80 %, default 70 %.
+  that scan, seen (local time). Thresholds below 50 / 60 / 70 %, default 70 % (the job only
+  flags dips of 30 % and deeper).
+- `#movers/<range>` (`--tab 24h`) opens a range.
 - Item names link to Item detail; the overview's "All movers and outliers →" opens the view.
 
 ## Screenshot band (task 3)
 
-Headless Edge (`--headless=new --window-size=W,H`) lays the page out at a smaller viewport
-(1890 x 985 for 1920 x 1080) and the PNG is W x H, so the app (100 vh) ends early and the rest is the
-canvas background. The app's own layout fills its window; the fix belongs in `screenshot.py`.
+A screenshot race, not the layout. Headless Edge (`--headless=new --window-size=W,H`) starts
+with a smaller viewport (1890 x 985 for 1920 x 1080) and re-lays the page out at W x H only if
+the page is idle when the virtual time budget runs out. The overview's "What changed" call takes
+about 12 s on the full archive, so the page was captured mid-load at the small viewport and the
+rest of the PNG was canvas. Fix: `app.warm()` fills the bridge cache for the page's view before
+Edge opens it (overview, item list + first item, the pattern tab, both movers calls); cached
+answers come back at once. The app's layout fills its window as it should.
+
+## Notes
+
+- `--tab KEY` with `--view patterns` (pattern key) or `--view movers` (24h / 7d / 30d) opens
+  that tab; `#patterns/<key>` and `#movers/<range>` are the deep links.
+- Patch and build effects: the job keys its hourly windows on the version only, and two builds
+  can share a version (1.60.1 twice in the live archive), so the view picks the run whose hours
+  line up with the selected build's time and filters the group medians by `published_at`.
+  Better fixed in the job (add `published_at` to the window frame).
+- New JS formatters beside `axisCoins`: `axisCount`, `axisPercent`, `axisSigned` (coins.js).

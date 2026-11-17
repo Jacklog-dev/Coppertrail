@@ -93,7 +93,7 @@ function horizontalGrid() {
   };
 }
 
-/** Dashed reference lines ([{value, label?}]: index 100, vendor floor), label above at the right. */
+/** Dashed reference lines ([{value, label?, color?}]: index 100, vendor floor), label above at the right. */
 function referenceLines(lines) {
   return {
     hooks: {
@@ -101,19 +101,56 @@ function referenceLines(lines) {
         (u) => {
           const { ctx } = u;
           ctx.save();
-          ctx.strokeStyle = colour("text3");
-          ctx.fillStyle = colour("text3");
           ctx.lineWidth = dpr();
           ctx.font = font();
           ctx.textAlign = "right";
           ctx.textBaseline = "bottom";
-          for (const { value, label } of lines) {
+          for (const { value, label, color } of lines) {
             const y = Math.round(u.valToPos(value, "y", true)) + 0.5;
             if (y < u.bbox.top || y > u.bbox.top + u.bbox.height) continue;
+            ctx.strokeStyle = colour(color ?? "text3");
+            ctx.fillStyle = colour(color ?? "text3");
             ctx.setLineDash([4 * dpr(), 4 * dpr()]);
             hline(ctx, u, y);
             ctx.setLineDash([]);
             if (label) ctx.fillText(label, u.bbox.left + u.bbox.width - 4 * dpr(), y - 4 * dpr());
+          }
+          ctx.restore();
+        },
+      ],
+    },
+  };
+}
+
+/** Vertical lines [{x, label, color}] (buy/sell hours, a build, a turning point), label at the top. */
+function verticalLines(lines) {
+  return {
+    hooks: {
+      draw: [
+        (u) => {
+          const { ctx } = u;
+          const { left, top, width, height } = u.bbox;
+          ctx.save();
+          ctx.lineWidth = dpr();
+          ctx.font = font();
+          ctx.textBaseline = "top";
+          for (const l of lines) {
+            const x = Math.round(u.valToPos(l.x, "x", true)) + 0.5;
+            if (x < left || x > left + width) continue;
+            const c = colour(l.color ?? "text3");
+            ctx.strokeStyle = c;
+            ctx.fillStyle = c;
+            ctx.beginPath();
+            ctx.moveTo(x, top);
+            ctx.lineTo(x, top + height);
+            ctx.stroke();
+            if (!l.label) continue;
+            const w = ctx.measureText(l.label).width;
+            const pad = 5 * dpr();
+            // Right of the line, or left of it near the right edge.
+            const right = x + pad + w <= left + width;
+            ctx.textAlign = right ? "left" : "right";
+            ctx.fillText(l.label, right ? x + pad : x - pad, top + height - 18 * dpr());
           }
           ctx.restore();
         },
@@ -430,6 +467,23 @@ function yRange(fromZero, include, headroom = 0.08) {
   };
 }
 
+/** Category labels that would run into each other: keep every k-th one. */
+function thinLabels(u, labels) {
+  u.ctx.font = font();
+  const widest = Math.max(0, ...labels.map((l) => u.ctx.measureText(l).width)) + 12 * dpr();
+  const slot = u.bbox.width / Math.max(1, labels.length);
+  const k = Math.max(1, Math.ceil(widest / slot));
+  return labels.map((l, i) => (i % k ? "" : l));
+}
+
+/** x range with half the smallest step on both sides (daily bars on a time axis). */
+function padRange(x) {
+  let step = Infinity;
+  for (let i = 1; i < x.length; i++) if (x[i] > x[i - 1]) step = Math.min(step, x[i] - x[i - 1]);
+  const half = Number.isFinite(step) ? step / 2 : 1800;
+  return (u, lo, hi) => [lo - half, hi + half];
+}
+
 function barsPath() {
   return uPlot.paths.bars({ size: [1 - num("--chart-bar-gap"), Infinity], align: 0 });
 }
@@ -437,17 +491,20 @@ function barsPath() {
 /**
  * chart(el, {x, series, height, format, bands, refLines, markers, stale, sync, yFromZero})
  *  x: unix seconds (shared by every series)
- *  series: [{label, color: "s1", width: "primary", fill?, bars?, values, format?}]
+ *  series: [{label, color: "s1", width: "primary", fill?, bars?, dash?, values, format?}]
  *  bands: [{upper, lower, color}]: indices into `series`, filled at --chart-band-alpha
  *  refLines: [{value, label?}] dashed; markers: [{t, kind: "mispricing"|"shock"|"buyout", label?}]
  *  stale: {from, to, label}: x runs on to `to` and the part after `from` is shaded
  *  sync: key shared by charts whose cursor and zoom move together (matching x data)
  *  xAxis: false hides the time axis (the upper of two linked plots)
  *  xHours: x is the hour of day 0..23 (ticks "06:00"), not a time
+ *  xLabels: categories, x = 0..n-1 (weekdays, groups); xSuffix: numeric x with a unit (" h" lags)
+ *  vLines: [{x, label?, color?}] vertical lines (buy/sell hours, a build)
  *  tipDate: "day" shows "Mon, 16 Nov 2026" in the tooltip (daily points), default date + time
  *  tipExtra: [{label, values, color?, format?}] more tooltip rows (not drawn)
  *  labels: [{x, y, text, color, below?, dot?, row?}] labelled points (row: pinned to the top)
  *  yWhole: y ticks on whole numbers (coin axes)
+ *  barPad: time x with bars: half a step of room left and right, so edge bars are not cut
  *  yFromZero: start y at 0 (default for bars; pass false to fit bars to the data)
  * Returns the uPlot instance with `reset()` (undo zoom, for the whole linked group).
  */
@@ -463,17 +520,22 @@ export function chart(target, cfg) {
   const surface = colour("surface");
   const hasBars = series.some((s) => s.bars);
   const hours = !!cfg.xHours;
-  const header = hours ? hourLabel : cfg.tipDate === "day" ? dayLabel : dateTime;
-  const xScale = hours
-    ? { time: false, range: hasBars ? (u, lo, hi) => [lo - 0.5, hi + 0.5] : (u, lo, hi) => [lo, hi] }
-    : { time: true };
-  const xAxisOpts = hours
-    ? { values: (u, vals) => vals.map(hourLabel), splits: () => [0, 6, 12, 18, 23] }
-    : { values: timeTicks, incrs: timeIncrs, space: 64 };
+  // Non-time x: hours of day, categories (xLabels: x = 0..n-1) or numbers with a unit (xSuffix).
+  const catLabel = cfg.xLabels ? (v) => cfg.xLabels[Math.round(v)] ?? "" : null;
+  const numLabel = cfg.xSuffix != null ? (v) => `${v < 0 ? "−" : ""}${Math.abs(v)}${cfg.xSuffix}` : null;
+  const plainX = hours ? hourLabel : catLabel ?? numLabel;
+  const header = plainX ?? (cfg.tipDate === "day" ? dayLabel : dateTime);
+  const xScale = plainX
+    ? { time: false, range: hasBars || catLabel ? (u, lo, hi) => [lo - 0.5, hi + 0.5] : (u, lo, hi) => [lo, hi] }
+    : { time: true, ...(cfg.barPad ? { range: padRange(x) } : {}) };
+  let xAxisOpts = { values: timeTicks, incrs: timeIncrs, space: 64 };
+  if (hours) xAxisOpts = { values: (u, vals) => vals.map(hourLabel), splits: () => [0, 6, 12, 18, 23] };
+  else if (catLabel) xAxisOpts = { values: (u, vals) => thinLabels(u, vals.map(catLabel)), splits: () => cfg.xLabels.map((_, i) => i), space: 30 };
+  else if (numLabel) xAxisOpts = { values: (u, vals) => vals.map(numLabel), incrs: WHOLE_INCRS, space: 40 };
   const opts = {
     width: Math.max(200, target.clientWidth),
     height,
-    ...(hours ? {} : { tzDate: (ts) => uPlot.tzDate(new Date(ts * 1000), TZ) }),
+    ...(plainX ? {} : { tzDate: (ts) => uPlot.tzDate(new Date(ts * 1000), TZ) }),
     legend: { show: false },
     padding: [markers.length ? MARKER_ROOM : 10, 20, 0, 0], // 20 px right: room for the last date tick
     cursor: {
@@ -502,6 +564,7 @@ export function chart(target, cfg) {
         width: s.bars ? 0 : num(WIDTHS[s.width ?? "secondary"]),
         fill: s.bars ? colour(s.color) : s.fill ? withAlpha(s.color, num("--chart-area-alpha")) : undefined,
         paths: s.bars ? barsPath() : undefined,
+        dash: s.dash ? [4 * dpr(), 4 * dpr()] : undefined,
         points: { show: false },
         _bars: !!s.bars,
         _format: s.format,
@@ -511,6 +574,7 @@ export function chart(target, cfg) {
     plugins: [
       horizontalGrid(),
       ...(refLines.length ? [referenceLines(refLines)] : []),
+      ...(cfg.vLines?.length ? [verticalLines(cfg.vLines)] : []),
       ...(markers.length ? [eventMarkers(markers)] : []),
       ...(stale ? [staleTail(stale)] : []),
       ...(cfg.labels?.length ? [pointLabels(cfg.labels)] : []),
