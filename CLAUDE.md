@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-The collector exists (HANDOVER section 9, steps 1 to 3). The GUI theme (step 6.1) and window frame (step 6.2: nav rail, filter bar, group editor, status strip) exist, rebuilt on pywebview + HTML/CSS/JS on 2026-11-17 (no Qt, see `docs/superpowers/specs/2026-11-17-webview-gui-design.md`); the four views are placeholders listing the filtered items. The series query layer, the pattern contract and CLI, and the section 5 baseline (step 4) exist since 2026-11-17; no pattern jobs are registered yet. The plan for the rest is `docs/superpowers/plans/2026-11-17-complete-the-app.md`: parallel sessions with file ownership (collector / patterns / ui); `query/`, CLAUDE.md and README stay with the coordinating session. **`private/handover/HANDOVER.md` is the spec. Read it before you start any work.** Section 8b is the visual design, and section 9 is the order of work.
+The collector exists (HANDOVER section 9, steps 1 to 3). The GUI theme (step 6.1) and window frame (step 6.2: nav rail, filter bar, group editor, status strip) exist, rebuilt on pywebview + HTML/CSS/JS on 2026-11-17 (no Qt, see `docs/superpowers/specs/2026-11-17-webview-gui-design.md`); the four views are still placeholders, but the states from 8b (no data, stale, no match, loading, pull failed, too little history), both breakpoints and the chart building blocks exist (`docs/superpowers/specs/2026-11-17-gui-groundwork-design.md`). The series query layer, the pattern contract and CLI, the section 5 baseline (step 4) and pattern jobs 1, 3, 4, 5, 8 and 12 exist (`docs/superpowers/specs/2026-11-17-patterns-batch-a.md`). Own scans: research only, `docs/own-scans-research.md`. The plan for the rest is `docs/superpowers/plans/2026-11-17-complete-the-app.md`: parallel sessions with file ownership (collector / patterns / ui); `query/`, CLAUDE.md and README stay with the coordinating session. **`private/handover/HANDOVER.md` is the spec. Read it before you start any work.** Section 8b is the visual design, and section 9 is the order of work.
 
 ## Commands
 
@@ -32,7 +32,8 @@ Collector notes:
 - The data dir defaults to `$COPPERTRAIL_DATA`, or `./private` if that is unset. Optional overrides go in `<data-dir>/collector.toml` under a `[collector]` table, with the field names from `coppertrail/collector/config.py`.
 - Exit codes: 0 ok or partial, 1 failed, 2 another run holds the lock, 3 the `API_ARCHIVE_UNTIL` cutoff was reached or archiving is disabled.
 - Each fetched item is staged in `<data-dir>/.staging/<run_id>/` and merged into the day files at the end of the run. Rerunning after a crash resumes the run, as long as it started within the last 12 h.
-- Day-file tables: `hourly`, `scans`, `snapshot`, `economy`, `items`, `watchlist`, `runs`, `gaps`, `population`. Logs go to `<data-dir>/logs/`.
+- Day-file tables: `hourly`, `scans`, `snapshot`, `economy`, `items`, `watchlist`, `runs`, `gaps`, `population`, `recipes`, `builds`. Logs go to `<data-dir>/logs/`.
+- Run order: watchlist, economy, population, recipes, builds, hourly, scans, item details. Recipes and builds are one request each and soft errors. Item details (`subclass`, `required_level`, `vendor_price`) are backfilled at most 200 items per run (`item_details_per_run`), so the first ~5 runs take about 7 minutes longer (workflow `timeout-minutes: 90`). Details: `docs/superpowers/specs/2026-11-17-collector-master-data-design.md`.
 
 Query and pattern notes:
 - `coppertrail/query/series.py`: `hourly`, `scans`, `snapshots`, `latest_snapshot`, `economy`, `items`, each a pandas frame. Item ids and an inclusive UTC day range (as `filtering.date_window` returns it) select rows; only day files inside the range are read. Timestamps are tz-aware UTC (the DuckDB session is set to UTC, else TIMESTAMPTZ comes back in local time). Missing tables give typed empty frames.
@@ -51,7 +52,12 @@ GUI notes:
 - The filter bar and group editor re-render their DOM on every state change; they remember the open popover and the focused field (`data-focus`) and restore both.
 - Caudex Regular has equal-width digits; Caudex Bold does not (narrow "1"), so keep numeric columns at weight 400. Caudex lacks ▲ ▼ ●: dots and coin marks are CSS circles, arrows come from the font fallback in `--type-*-family` (Segoe UI Symbol on Windows).
 
-## Verified API facts (2026-11-16)
+## Verified API facts (2026-11-16, 2026-11-17)
+
+- `GET /v1/items/{id}?game=forever` (one id per request, comma lists are rejected) gives `itemSubclass` ("Leather", "Herb", "Metal & Stone", "Cloth", ...), `vendorSell` (copper) and `requiredLevel`. `/v1/tooltip` has neither subclass nor vendor price.
+- `GET /v1/crafting/{market}?all=true&limit=3000` (JSON) returns all 2,227 recipes with `recipe.{spellId,name,profession,skillRequired,acquisition}`, `result.{id,name,qtyMin,qtyMax}`, `reagents[].{id,name,qty}`. Without `all=true` only 500 priced recipes come back; `format=csv` has no reagents; `limit` above 3000 is rejected.
+- `https://ahledger.com/feed/builds.xml` is RSS 2.0; titles look like "WoW Forever [stage ]X.Y.Z (build N): ...".
+- `ahledger.com/api/catalog?class=trade-goods` has subclasses but no vendor price and sits behind the website; not used.
 
 - Price table columns 5 to 8 are the 7-day median, 30-day median, 30-day low and 30-day high. They are documented on the developers page and match `/prices` `latest`.
 - A `range=24h` point has the same fields as a 7d point: `{t, min, median, p25, p75, quantity, auctions}`, with one point per full scan.
