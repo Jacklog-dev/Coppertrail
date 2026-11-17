@@ -1,0 +1,43 @@
+/* Fonts, page defaults. Colours and sizes come from tokens.css. */
+
+@font-face { font-family: "Caudex"; src: url("../fonts/Caudex-Regular.ttf") format("truetype"); font-weight: 400; font-style: normal; }
+@font-face { font-family: "Caudex"; src: url("../fonts/Caudex-Italic.ttf") format("truetype"); font-weight: 400; font-style: italic; }
+@font-face { font-family: "Caudex"; src: url("../fonts/Caudex-Bold.ttf") format("truetype"); font-weight: 700; font-style: normal; }
+@font-face { font-family: "Caudex"; src: url("../fonts/Caudex-BoldItalic.ttf") format("truetype"); font-weight: 700; font-style: italic; }
+@font-face { font-family: "Almendra"; src: url("../fonts/Almendra-Regular.ttf") format("truetype"); font-weight: 400; font-style: normal; }
+@font-face { font-family: "Almendra"; src: url("../fonts/Almendra-Bold.ttf") format("truetype"); font-weight: 700; font-style: normal; }
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body { height: 100%; margin: 0; }
+
+body {
+  background: var(--bg1);
+  color: var(--text1);
+  font-family: var(--type-body-family);
+  font-size: var(--type-body-size);
+  font-weight: var(--type-body-weight);
+  line-height: 1.4;
+  /* Caudex Regular has equal-width digits; keep numbers at weight 400. */
+  font-variant-numeric: tabular-nums lining-nums;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+h1, h2, h3, p { margin: 0; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: default; }
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { color: var(--accentHover); text-decoration: underline; }
+
+:focus-visible { outline: 1px solid var(--borderStrong); outline-offset: 1px; }
+
+::selection { background: var(--accentMuted); color: var(--text1); }
+
+/* Scrollbars: 8 px, thumb in --scroll. */
+* { scrollbar-width: thin; scrollbar-color: var(--scroll) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 3px; }

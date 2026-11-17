@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+<title>Coppertrail · style sample</title>
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="vendor/uPlot.min.css">
+<style>
+  body { overflow: auto; }
+  .page { padding: var(--size-view-pad); display: grid; gap: var(--size-gap); grid-template-columns: 1fr 1fr; max-width: 1840px; }
+  .wide { grid-column: 1 / -1; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .stack { display: grid; gap: var(--space-3); }
+  .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--space-2); }
+  .swatch { display: flex; align-items: center; gap: var(--space-2); font-size: var(--type-small-size); color: var(--text2); }
+  .swatch b { width: 28px; height: 20px; border: 1px solid var(--border); border-radius: var(--radius-control); flex: none; }
+  .head { display: flex; align-items: center; gap: var(--space-3); }
+</style>
+</head>
+<body>
+<div class="page" id="sample"></div>
+<script type="module" src="js/sample.js"></script>
+</body>
+</html>

@@ -1,0 +1,162 @@
+/* Shared components (HANDOVER 8b). Values from the mock-ups, expressed in tokens. */
+
+/* Type roles -------------------------------------------------------------- */
+.h1 {
+  font-family: var(--type-h1-family); font-weight: var(--type-h1-weight); font-size: var(--type-h1-size);
+  text-transform: var(--type-h1-transform); letter-spacing: var(--type-h1-spacing); color: var(--text1);
+}
+.card-title {
+  font-family: var(--type-title-family); font-weight: var(--type-title-weight); font-size: var(--type-title-size);
+  text-transform: var(--type-title-transform); letter-spacing: var(--type-title-spacing); color: var(--text1);
+}
+.h2 { font-family: var(--type-h2-family); font-weight: var(--type-h2-weight); font-size: var(--type-h2-size); }
+.kpi { font-family: var(--type-kpi-family); font-weight: var(--type-kpi-weight); font-size: var(--type-kpi-size); letter-spacing: -0.01em; }
+.sub { font-family: var(--type-sub-family); font-size: var(--type-sub-size); color: var(--text3); }
+.small { font-size: var(--type-small-size); }
+.label { font-size: var(--type-sub-size); color: var(--text3); }
+.muted { color: var(--text2); }
+.wordmark { font-family: var(--type-display-family); font-weight: var(--type-display-weight); white-space: nowrap; }
+.wordmark .copper { color: var(--accent); }
+.wordmark .trail { color: var(--text1); }
+
+/* Card ------------------------------------------------------------------------ */
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card);
+  padding: var(--size-card-pad); min-width: 0; position: relative;
+}
+.card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin-bottom: 14px; }
+.card-head .sub { margin-top: 2px; }
+
+/* Buttons and controls ------------------------------------------------------- */
+.btn {
+  height: var(--size-control-h); display: inline-flex; align-items: center; gap: var(--space-2);
+  padding: 0 10px; background: var(--raised); border: 1px solid var(--border); border-radius: var(--radius-control);
+  color: var(--text1); font-size: var(--type-sub-size); white-space: nowrap;
+}
+.btn:hover:not(:disabled) { border-color: var(--borderStrong); }
+.btn:disabled { color: var(--textDis); }
+.btn.primary { background: var(--accent); color: var(--accentOn); border: 0; font-weight: 700; padding: 0 14px; }
+.btn.primary:hover:not(:disabled) { background: var(--accentHover); }
+.btn.primary:active:not(:disabled) { background: var(--accentPressed); }
+.btn.ghost { height: 28px; background: transparent; color: var(--text2); font-size: var(--type-small-size); gap: 6px; }
+.btn.ghost:hover:not(:disabled) { color: var(--text1); }
+.btn.link {
+  height: auto; padding: 0; background: transparent; border: 0; color: var(--accent);
+  font-size: var(--type-small-size); gap: 6px;
+}
+.btn.link:hover:not(:disabled) { color: var(--accentHover); text-decoration: underline; }
+.btn.link:disabled { color: var(--textDis); }
+.btn.icon { width: var(--size-control-h); padding: 0; justify-content: center; color: var(--text2); }
+
+.ctl {
+  height: var(--size-control-h); display: inline-flex; align-items: center; gap: var(--space-2);
+  padding: 0 10px; background: var(--raised); border: 1px solid var(--border); border-radius: var(--radius-control);
+  color: var(--text1); font-size: var(--type-sub-size); white-space: nowrap; min-width: 0;
+}
+.ctl:hover { border-color: var(--borderStrong); }
+.ctl.active { border-color: var(--accent); background: var(--accentMuted); }
+.ctl .label { flex: none; }
+.ctl .value { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ctl svg { flex: none; color: var(--text3); }
+
+.seg {
+  display: inline-flex; height: var(--size-control-h); border: 1px solid var(--border);
+  border-radius: var(--radius-control); overflow: hidden; background: var(--raised);
+}
+.seg button {
+  border: 0; border-right: 1px solid var(--border); background: transparent; padding: 0 11px;
+  font-size: var(--type-small-size); color: var(--text2);
+}
+.seg button:last-child { border-right: 0; }
+.seg button:hover { color: var(--text1); }
+.seg button[aria-pressed="true"] { background: var(--accentMuted); color: var(--accent); font-weight: 700; }
+
+.input {
+  height: var(--size-control-h); display: flex; align-items: center; gap: var(--space-2); padding: 0 10px;
+  background: var(--raised); border: 1px solid var(--border); border-radius: var(--radius-control); color: var(--text3);
+}
+.input:focus-within { border-color: var(--borderStrong); }
+.input.active { border-color: var(--accent); background: var(--accentMuted); }
+.input input { border: 0; background: transparent; outline: none; width: 100%; min-width: 0; color: var(--text1); font-size: var(--type-sub-size); }
+.input input::placeholder { color: var(--text3); }
+.input input[type="number"] { appearance: textfield; }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 var(--space-2);
+  border-radius: var(--radius-chip); background: var(--raised); border: 1px solid var(--border);
+  font-size: var(--type-small-size); color: var(--text2); white-space: nowrap;
+}
+button.chip:hover { border-color: var(--borderStrong); color: var(--text1); }
+.chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accentMuted); color: var(--accent); }
+
+.check { display: inline-flex; width: 16px; height: 16px; flex: none; align-items: center; justify-content: center;
+  border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--raised); color: var(--accentOn); }
+.check[aria-checked="true"] { background: var(--accent); border-color: var(--accent); }
+
+.tab {
+  height: 40px; display: inline-flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-1);
+  border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--text2);
+  font-size: var(--type-sub-size); margin-bottom: -1px;
+}
+.tab[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--text1); font-weight: 700; }
+
+/* Popovers, menus, dialogs, tooltips ---------------------------------------- */
+.popover, .menu, .tooltip {
+  position: fixed; z-index: 20; background: var(--overlay); border: 1px solid var(--borderStrong);
+  border-radius: var(--radius-panel); color: var(--text1);
+}
+.popover { padding: var(--space-3); min-width: 240px; }
+.menu { padding: var(--space-1); min-width: 180px; }
+.menu button {
+  display: flex; width: 100%; align-items: center; gap: var(--space-2); height: 30px; padding: 0 10px;
+  border: 0; border-radius: var(--radius-control); background: transparent; color: var(--text2);
+  font-size: var(--type-sub-size); text-align: left;
+}
+.menu button:hover { background: var(--raised); color: var(--text1); }
+.menu button[aria-checked="true"] { color: var(--accent); }
+.tooltip { padding: var(--space-2) 10px; font-size: var(--type-small-size); pointer-events: none; border-radius: var(--radius-control); }
+
+.backdrop { position: fixed; inset: 0; z-index: 30; background: rgb(from var(--bg0) r g b / 0.6);
+  display: flex; align-items: center; justify-content: center; }
+.dialog {
+  background: var(--overlay); border: 1px solid var(--borderStrong); border-radius: var(--radius-dialog);
+  display: flex; flex-direction: column; max-width: calc(100vw - 48px); max-height: calc(100vh - 48px);
+}
+
+/* Data table ----------------------------------------------------------------- */
+table.data { width: 100%; border-collapse: collapse; font-size: var(--type-sub-size); }
+table.data th {
+  font-family: var(--type-th-family); font-weight: var(--type-th-weight); font-size: var(--type-th-size);
+  color: var(--text3); text-align: left; padding: 0 10px var(--space-2);
+  border-bottom: 1px solid var(--border); white-space: nowrap; position: sticky; top: 0; background: var(--surface);
+}
+table.data td { height: var(--size-row-h); padding: 0 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; color: var(--text1); }
+table.data tr:hover td { background: var(--raised); }
+table.data tr.selected td { background: var(--accentMuted); }
+table.data .num { text-align: right; font-weight: 400; }
+table.data td.muted { color: var(--text2); }
+
+/* Values ---------------------------------------------------------------------- */
+.coin { white-space: nowrap; }
+.coin i {
+  display: inline-block; width: var(--coin-mark); height: var(--coin-mark); border-radius: 50%;
+  margin: 0 0 0 var(--coin-gap); vertical-align: 1px;
+}
+.coin i + span { margin-left: 0.25em; }
+.coin i.g { background: var(--gold); box-shadow: inset 0 0 0 var(--coin-ring) var(--goldRing); }
+.coin i.s { background: var(--silver); box-shadow: inset 0 0 0 var(--coin-ring) var(--silverRing); }
+.coin i.c { background: var(--copper); box-shadow: inset 0 0 0 var(--coin-ring) var(--copperRing); }
+.up { color: var(--rise); white-space: nowrap; }
+.dn { color: var(--fall); white-space: nowrap; }
+.dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--text3); }
+.dot.rise { background: var(--rise); }
+.dot.attention { background: var(--attention); }
+.dot.accent { background: var(--accent); }
+.attention { color: var(--attention); }
+
+/* Charts ---------------------------------------------------------------------- */
+.legend { display: flex; gap: var(--space-4); font-size: var(--type-small-size); color: var(--text2); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { display: inline-block; width: 14px; height: 2px; border-radius: 1px; }
+.chart { position: relative; }
+.chart .u-select { background: rgb(from var(--accent) r g b / 0.12); }
