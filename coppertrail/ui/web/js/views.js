@@ -1,8 +1,10 @@
-// The four views. Until their real content exists (HANDOVER 9, step 6.3) each one lists the
-// items that pass the filters, so the filter bar can be checked end to end.
+// The four views. Market overview and Item detail are real (overview.js, itemdetail.js);
+// Patterns and Movers still list the items that pass the filters until their session lands.
 import { coin } from "./coins.js";
 import { el, replace } from "./dom.js";
+import * as itemdetail from "./itemdetail.js";
 import { VIEWS } from "./navrail.js";
+import * as overview from "./overview.js";
 
 function itemTable(rows) {
   return el(
@@ -23,9 +25,7 @@ function itemTable(rows) {
   );
 }
 
-/** render(container, state, viewId, banner?) — `banner` (the stale-data notice) goes on top. */
-export function render(container, state, viewId, banner = null) {
-  const view = VIEWS.find((v) => v.id === viewId) ?? VIEWS[0];
+function placeholder(container, state, view, banner) {
   const { items, window } = state;
   const head = el(
     "header",
@@ -45,4 +45,15 @@ export function render(container, state, viewId, banner = null) {
   );
   replace(container, banner, head, body);
   container.scrollTop = 0;
+}
+
+/**
+ * render(container, state, viewId, banner?, nav) — `banner` (the stale-data notice) goes on
+ * top; `nav` lets a view switch views or pick an item (main.js).
+ */
+export function render(container, state, viewId, banner = null, nav = null) {
+  const view = VIEWS.find((v) => v.id === viewId) ?? VIEWS[0];
+  if (view.id === "overview") return overview.render(container, state, banner, nav);
+  if (view.id === "item") return itemdetail.render(container, state, banner, nav);
+  return placeholder(container, state, view, banner);
 }

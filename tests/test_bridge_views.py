@@ -105,6 +105,9 @@ def test_overview_tiles_and_charts(market, config_dir):
     assert len(o["index"]["x"]) == len(o["index"]["scarce"]) == len(o["index"]["divergence"])
     assert o["index"]["scarce"][-1] > 100 and o["index"]["farmable"][-1] > 100
     assert o["rhythm"]["hours"] == list(range(24)) and len(o["rhythm"]["labels"]) == 4
+    groups = {r["name"]: r for r in o["rhythm"]["groups"]["rows"]}
+    assert groups["Leather chain"]["items"] == "2 items"  # the two with hourly data
+    assert o["rhythm"]["groups"]["sub"].endswith("lowest buyout, 07:00 vs 23:00")
     assert o["supply"]["sub"] == "9 Nov – 16 Nov 2026 · 8 d"
     assert len(o["supply"]["x"]) == len(HOURS)
     assert o["gold"]["sub"].endswith("whole market")

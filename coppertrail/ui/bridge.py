@@ -260,6 +260,10 @@ class ViewInputs:
             self.lo,
             self.hi,
             None if ids is None else tuple(sorted(ids)),
+            tuple(
+                (g.name, tuple(g.item_ids), tuple(g.patterns), tuple(g.excluded_ids))
+                for g in self.groups
+            ),
         )
 
 
@@ -659,7 +663,11 @@ class Bridge:
             gap = history_gap(
                 result.title, needed=have + result.needs_days, have=have, ready_on=result.ready_on
             )
-        return vd.rhythm_chart(result, inp.lo, inp.hi, gap)
+        out = vd.rhythm_chart(result, inp.lo, inp.hi, gap)
+        shown = {i.item_id for i in inp.shown}
+        members = [(g.name, {i.item_id for i in g.members(inp.items)} & shown) for g in inp.groups]
+        out["groups"] = vd.rhythm_by_group(result, members, inp.lo, inp.hi)
+        return out
 
     def overview_events(self) -> dict:
         """What changed: events of the last 7 archive days for the filtered items."""
@@ -688,9 +696,8 @@ class Bridge:
 
     def item_detail(self, item_id: int) -> dict:
         inp = self._inputs()
-        groups_key = tuple((g.name, tuple(g.item_ids), tuple(g.patterns)) for g in inp.groups)
         return self.memo.get(
-            ("item", int(item_id), groups_key, *inp.key), lambda: self._item(inp, int(item_id))
+            ("item", int(item_id), *inp.key), lambda: self._item(inp, int(item_id))
         )
 
     def _item(self, inp: ViewInputs, item_id: int) -> dict:

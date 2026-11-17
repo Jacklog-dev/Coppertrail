@@ -11,14 +11,34 @@ import * as views from "./views.js";
 import * as filterbar from "./filterbar.js";
 
 const $ = (id) => document.getElementById(id);
+const START_VIEWS = ["overview", "item", "patterns", "movers"];
 const ui = {
-  view: "overview",
+  view: START_VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "overview", // #item opens Item detail (--view)
   pulling: false,
   error: null, // {message, detail} for the status strip
   failure: null, // pull failure payload from the bridge: shows the "Pull failed" state
   showLog: false,
   loading: null, // text while the bridge reads a data folder
   dismissed: null, // lastPoint of the stale banner the user closed
+  item: null, // item id shown in Item detail (and handed to Patterns)
+};
+// What views may do to the frame: switch view (optionally with an item), pick an item,
+// take a new state from a bridge call they made (add to group).
+const nav = {
+  get item() {
+    return ui.item;
+  },
+  go(id, { item } = {}) {
+    if (item != null) ui.item = item;
+    selectView(id);
+  },
+  selectItem(id) {
+    ui.item = id;
+    render();
+  },
+  setState(next) {
+    render(next);
+  },
 };
 let state = null;
 
@@ -53,7 +73,7 @@ function renderView() {
     replace(view, banner, states.noMatch(state.noMatch, { onClear: (partial) => filterChange(partial), onReset: () => filterChange(null) }));
     return;
   }
-  views.render(view, state, ui.view, banner);
+  views.render(view, state, ui.view, banner, nav);
 }
 
 function selectView(id) {
@@ -137,6 +157,6 @@ async function openCredit(event) {
   else window.open(state?.creditUrl ?? event.currentTarget.href, "_blank", "noopener");
 }
 
-await preload("overview", "item", "patterns", "movers", "folder", "download", "external", "refresh", "clock", "sliders");
+await preload("overview", "item", "patterns", "movers", "folder", "download", "external", "refresh", "clock", "sliders", "reset", "zoom", "search", "star", "chevron");
 render(); // loading state until the bridge answers
 render(await call("state"));

@@ -309,6 +309,40 @@ def rhythm_chart(result: PatternResult | None, lo: date, hi: date, gap: dict | N
     return out
 
 
+def rhythm_by_group(
+    result: PatternResult | None, groups: Sequence[tuple[str, set[int]]], lo: date, hi: date
+) -> dict:
+    """Per item group: median over its items of the lowest buyout at 07:00 against 23:00."""
+    out: dict = {"sub": range_sub(lo, hi, "lowest buyout, 07:00 vs 23:00"), "rows": []}
+    td = None if result is None or not result.ready else result.charts.get("typical_day")
+    if td is None or td.empty:
+        out["note"] = "Needs the daily rhythm."
+        return out
+    wide = td.pivot_table(index="item_id", columns="hour", values="min_idx")
+    if 7 not in wide.columns or 23 not in wide.columns:
+        out["note"] = "No 07:00 or 23:00 prices yet."
+        return out
+    ratio = (wide[7] / wide[23] - 1).dropna()
+    rows = []
+    for name, ids in groups:
+        part = ratio[ratio.index.isin(ids)]
+        if len(part):
+            rows.append((name, float(part.median()), len(part)))
+    top = max((abs(v) for _, v, _ in rows), default=0) or 1
+    out["rows"] = [
+        {
+            "name": name,
+            "change": fmt.change(v),
+            "share": round(abs(v) / top, 3),
+            "items": plural(n, "item"),
+        }
+        for name, v, n in sorted(rows, key=lambda r: -r[1])
+    ]
+    if not rows:
+        out["note"] = "No group has items in this filter."
+    return out
+
+
 def supply_chart(
     hourly: pd.DataFrame, lo: date, hi: date, week: tuple[float | None, float | None]
 ) -> dict:

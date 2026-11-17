@@ -32,8 +32,21 @@ const dateFmt = new Intl.DateTimeFormat("en-GB", {
 export const dateTime = (unixSeconds) => dateFmt.format(new Date(unixSeconds * 1000));
 
 const dayFmt = new Intl.DateTimeFormat("en-GB", { timeZone: TZ, day: "numeric", month: "short" });
+const fullDayFmt = new Intl.DateTimeFormat("en-GB", { timeZone: TZ, weekday: "short", day: "numeric", month: "short", year: "numeric" });
+/** "Mon, 16 Nov 2026" in local time, for tooltips of daily series. */
+export const dayLabel = (unixSeconds) => fullDayFmt.format(new Date(unixSeconds * 1000));
+/** "07:00" for hour-of-day charts (x = 0..23). */
+export const hourLabel = (h) => String(Math.round(h)).padStart(2, "0") + ":00";
 const hourFmt = new Intl.DateTimeFormat("en-GB", { timeZone: TZ, hour: "2-digit", minute: "2-digit", hour12: false });
 /** Time axis ticks: "18 Oct" over days, "08:00" within two days (HANDOVER 8b date style). */
+const HOUR = 3600;
+const DAY = 86400;
+// Tick steps: whole days once the labels are days (else uPlot may pick 12 h and repeat them).
+const HOUR_INCRS = [HOUR, 2 * HOUR, 3 * HOUR, 4 * HOUR, 6 * HOUR, 12 * HOUR, DAY];
+const DAY_INCRS = [DAY, 2 * DAY, 3 * DAY, 7 * DAY, 14 * DAY, 28 * DAY, 91 * DAY, 182 * DAY];
+const timeIncrs = (u, axisIdx, min, max) => (max - min > 2 * DAY ? DAY_INCRS : HOUR_INCRS);
+// Whole-number y steps (coins are whole copper; 1.5c would print as a second "2c").
+const WHOLE_INCRS = [1, 2, 5].flatMap((m) => Array.from({ length: 12 }, (_, k) => m * 10 ** k)).sort((a, b) => a - b);
 function timeTicks(u, splits) {
   const span = u.scales.x.max - u.scales.x.min;
   const fmt = span > 2 * 86400 ? dayFmt : hourFmt;
@@ -245,7 +258,7 @@ function staleTail({ from, label }) {
 // Tooltip -------------------------------------------------------------------------------------
 
 /** Tooltip in --overlay with --borderStrong; flips to the left of the crosshair near the edge. */
-function tooltip(format, markers) {
+function tooltip(format, markers, header, extra) {
   let tip;
   const hide = () => tip && (tip.style.display = "none");
   return {
@@ -260,7 +273,7 @@ function tooltip(format, markers) {
         const { idx, left, top } = u.cursor;
         if (idx == null || left < 0) return hide();
         const t = u.data[0][idx];
-        tip.replaceChildren(el("div", { class: "muted", text: dateTime(t) }));
+        tip.replaceChildren(el("div", { class: "muted", text: header(t) }));
         u.series.forEach((s, i) => {
           if (i === 0 || !s.show) return;
           const v = u.data[i][idx];
@@ -270,6 +283,13 @@ function tooltip(format, markers) {
           const fmt = s._format ?? format;
           tip.append(el("div", { class: "tip-row" }, sw, el("span", { text: s.label }), el("span", { class: "tip-val", text: v == null ? "—" : fmt(v) })));
         });
+        for (const row of extra) {
+          const v = row.values[idx];
+          if (v == null) continue;
+          const sw = el("i", { class: "swatch" });
+          sw.style.background = colour(row.color ?? "text3");
+          tip.append(el("div", { class: "tip-row" }, sw, el("span", { text: row.label }), el("span", { class: "tip-val", text: (row.format ?? format)(v) })));
+        }
         // Markers at this point: those closer to this x than to its neighbours.
         const xs = u.data[0];
         const lo = idx > 0 ? (xs[idx - 1] + t) / 2 : -Infinity;
@@ -296,6 +316,61 @@ function markerSwatch(kind) {
   const s = el("i", { class: "marker " + kind.shape });
   s.style.setProperty("--marker", `var(--${kind.color})`);
   return s;
+}
+
+// Point labels ------------------------------------------------------------------------------
+
+/**
+ * Labelled points [{x, y, text, color, below}] (daily rhythm minima and maxima, the cheapest
+ * and dearest hour): a 6 px dot in the series colour and the text above (or below) it.
+ */
+function pointLabels(labels) {
+  return {
+    hooks: {
+      draw: [
+        (u) => {
+          const { ctx } = u;
+          const { left, top, width, height } = u.bbox;
+          ctx.save();
+          ctx.font = font();
+          for (const l of labels) {
+            const x = u.valToPos(l.x, "x", true);
+            const y = u.valToPos(l.y, "y", true);
+            if (x < left - 1 || x > left + width + 1) continue;
+            const c = colour(l.color ?? "text2");
+            if (l.row != null) {
+              // Pinned to the headroom above the plot (bar charts): row 0, then row 1 below it.
+              const w = ctx.measureText(l.text).width;
+              const pad = 4 * dpr();
+              ctx.fillStyle = c;
+              ctx.textAlign = "center";
+              ctx.textBaseline = "top";
+              ctx.fillText(l.text, Math.min(Math.max(x, left + w / 2 + pad), left + width - w / 2 - pad), top + (2 + l.row * 17) * dpr());
+              continue;
+            }
+            if (l.dot !== false) {
+              ctx.fillStyle = c;
+              ctx.beginPath();
+              ctx.arc(x, y, 3 * dpr(), 0, 2 * Math.PI);
+              ctx.fill();
+            }
+            const w = ctx.measureText(l.text).width;
+            const pad = 4 * dpr();
+            // Keep the text inside the plot: shift it in from the edges, flip at the top/bottom.
+            const tx = Math.min(Math.max(x, left + w / 2 + pad), left + width - w / 2 - pad);
+            let below = !!l.below;
+            if (!below && y - 18 * dpr() < top) below = true;
+            if (below && y + 18 * dpr() > top + height) below = false;
+            ctx.textAlign = "center";
+            ctx.textBaseline = below ? "top" : "bottom";
+            ctx.fillStyle = c;
+            ctx.fillText(l.text, tx, below ? y + 7 * dpr() : y - 7 * dpr());
+          }
+          ctx.restore();
+        },
+      ],
+    },
+  };
 }
 
 // Linked charts ---------------------------------------------------------------------------
@@ -344,14 +419,14 @@ const WIDTHS = { primary: "--chart-line-primary", secondary: "--chart-line-secon
 const Y_AXIS_PX = 56; // fixed, so linked charts line their plots up
 
 /** y range: data plus reference lines (a vendor floor below the prices stays visible), 8 % headroom. */
-function yRange(fromZero, include) {
+function yRange(fromZero, include, headroom = 0.08) {
   return (u, min, max) => {
     if (min == null || max == null) return [0, 1];
     let lo = Math.min(min, ...include);
     let hi = Math.max(max, ...include);
     if (fromZero) lo = Math.min(0, lo);
-    const pad = (hi - lo) * 0.08 || Math.abs(hi) * 0.1 || 1;
-    return [fromZero && lo === 0 ? 0 : lo - pad, hi + pad];
+    const span = hi - lo || Math.abs(hi) || 1;
+    return [fromZero && lo === 0 ? 0 : lo - span * 0.08, hi + span * headroom];
   };
 }
 
@@ -368,6 +443,12 @@ function barsPath() {
  *  stale: {from, to, label}: x runs on to `to` and the part after `from` is shaded
  *  sync: key shared by charts whose cursor and zoom move together (matching x data)
  *  xAxis: false hides the time axis (the upper of two linked plots)
+ *  xHours: x is the hour of day 0..23 (ticks "06:00"), not a time
+ *  tipDate: "day" shows "Mon, 16 Nov 2026" in the tooltip (daily points), default date + time
+ *  tipExtra: [{label, values, color?, format?}] more tooltip rows (not drawn)
+ *  labels: [{x, y, text, color, below?, dot?, row?}] labelled points (row: pinned to the top)
+ *  yWhole: y ticks on whole numbers (coin axes)
+ *  yFromZero: start y at 0 (default for bars; pass false to fit bars to the data)
  * Returns the uPlot instance with `reset()` (undo zoom, for the whole linked group).
  */
 export function chart(target, cfg) {
@@ -381,12 +462,20 @@ export function chart(target, cfg) {
   }
   const surface = colour("surface");
   const hasBars = series.some((s) => s.bars);
+  const hours = !!cfg.xHours;
+  const header = hours ? hourLabel : cfg.tipDate === "day" ? dayLabel : dateTime;
+  const xScale = hours
+    ? { time: false, range: hasBars ? (u, lo, hi) => [lo - 0.5, hi + 0.5] : (u, lo, hi) => [lo, hi] }
+    : { time: true };
+  const xAxisOpts = hours
+    ? { values: (u, vals) => vals.map(hourLabel), splits: () => [0, 6, 12, 18, 23] }
+    : { values: timeTicks, incrs: timeIncrs, space: 64 };
   const opts = {
     width: Math.max(200, target.clientWidth),
     height,
-    tzDate: (ts) => uPlot.tzDate(new Date(ts * 1000), TZ),
+    ...(hours ? {} : { tzDate: (ts) => uPlot.tzDate(new Date(ts * 1000), TZ) }),
     legend: { show: false },
-    padding: [markers.length ? MARKER_ROOM : 10, 12, 0, 0],
+    padding: [markers.length ? MARKER_ROOM : 10, 20, 0, 0], // 20 px right: room for the last date tick
     cursor: {
       x: true,
       y: true,
@@ -400,10 +489,11 @@ export function chart(target, cfg) {
       ...(sync ? { sync: { key: sync, setSeries: false, scales: ["x", null] } } : {}),
     },
     scales: {
-      x: { time: true },
-      y: { range: yRange(cfg.yFromZero || hasBars, refLines.map((r) => r.value)) },
+      x: xScale,
+      // Labelled points get room above the highest value for their text.
+      y: { range: yRange(cfg.yFromZero ?? hasBars, refLines.map((r) => r.value), cfg.labels?.length ? 0.22 : 0.08) },
     },
-    axes: [axis({ values: timeTicks, show: cfg.xAxis !== false, size: cfg.xAxis === false ? 0 : 50 }), axis({ size: Y_AXIS_PX, values: (u, vals) => vals.map((v) => format(v)) })],
+    axes: [axis({ ...xAxisOpts, show: cfg.xAxis !== false, size: cfg.xAxis === false ? 0 : 50 }), axis({ size: Y_AXIS_PX, values: (u, vals) => vals.map((v) => format(v)), ...(cfg.yWhole ? { incrs: WHOLE_INCRS } : {}) })],
     series: [
       {},
       ...series.map((s) => ({
@@ -423,8 +513,9 @@ export function chart(target, cfg) {
       ...(refLines.length ? [referenceLines(refLines)] : []),
       ...(markers.length ? [eventMarkers(markers)] : []),
       ...(stale ? [staleTail(stale)] : []),
+      ...(cfg.labels?.length ? [pointLabels(cfg.labels)] : []),
       ...(sync ? [linked(sync)] : []),
-      tooltip(format, markers),
+      tooltip(format, markers, header, cfg.tipExtra ?? []),
     ],
   };
   const u = new uPlot(opts, [x, ...values], target);
@@ -475,19 +566,29 @@ export function legend(items) {
 }
 
 /**
- * chartCard({title, sub, legend: items, height, extraHead?, build(plotEl) -> uPlot | uPlot[]})
- * A card with title, subtitle, legend and a reset-zoom button in the header. `build` runs
- * once the card is in the page (charts need their width). Returns {node, charts}.
+ * chartCard({title, sub, legend: items, build(plotEl, ...) -> uPlot | uPlot[], plots, className,
+ *            tools, zoom, reset, legend2})
+ * A card with title, subtitle, legend and zoom/reset buttons in the header. `tools` (a node)
+ * goes left of them (a current value, a chip); `zoom: true` adds a zoom-in button (the later
+ * half of the range); `reset: false` drops the reset button (charts that do not zoom);
+ * `legend2` is a second legend row (event markers). `build` runs once the card is in the page
+ * (charts need their width). Returns {node, charts, mount()}.
  */
-export function chartCard({ title, sub, legend: items = [], build, plots = 1, className = "" }) {
+export function chartCard({ title, sub, legend: items = [], build, plots = 1, className = "", tools = null, zoom = false, reset = true, legend2 = null }) {
   const holders = Array.from({ length: plots }, () => el("div", { class: "chart" }));
   const result = { node: null, charts: [] };
-  const resetBtn = el("button", { class: "btn icon slim-icon", attrs: { title: "Reset zoom", "aria-label": "Reset zoom" }, on: { click: () => result.charts[0]?.reset() } }, icon("reset", 15));
+  const zoomBtn = zoom
+    ? el("button", { class: "btn icon slim-icon", attrs: { title: "Zoom in", "aria-label": "Zoom in" }, on: { click: () => zoomIn(result.charts[0]) } }, icon("zoom", 15))
+    : null;
+  const resetBtn = reset
+    ? el("button", { class: "btn icon slim-icon", attrs: { title: "Reset zoom", "aria-label": "Reset zoom" }, on: { click: () => result.charts[0]?.reset() } }, icon("reset", 15))
+    : null;
+  const legends = el("div", { class: "legends" }, items.length ? legend(items) : null, legend2?.length ? legend(legend2) : null);
   const head = el(
     "div",
     { class: "card-head" },
     el("div", {}, el("h2", { class: "card-title", text: title }), sub ? el("div", { class: "sub", text: sub }) : null),
-    el("div", { class: "card-tools" }, items.length ? legend(items) : null, resetBtn),
+    el("div", { class: "card-tools" }, legends, tools, zoomBtn, resetBtn),
   );
   result.node = el("section", { class: "card chart-card " + className }, head, holders);
   result.mount = () => {
@@ -496,6 +597,14 @@ export function chartCard({ title, sub, legend: items = [], build, plots = 1, cl
     return result;
   };
   return result;
+}
+
+/** Zoom to the later half of what is shown (linked charts follow). */
+function zoomIn(u) {
+  if (!u) return;
+  const { min, max } = u.scales.x;
+  if (min == null || max == null) return;
+  u.setScale("x", { min: min + (max - min) / 2, max });
 }
 
 // Sparkline and range bar (SVG, for table cells) -----------------------------------------

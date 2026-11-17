@@ -146,3 +146,14 @@ def test_failed_pull_event_carries_failure_state(monkeypatch, archive, config_di
     assert payload["failure"]["cause"] == "git stopped: could not read from remote."
     assert "exit 128" in payload["failure"]["request"]
     assert payload["state"]["status"]["empty"] is False
+
+
+def test_view_flag_opens_that_view(monkeypatch, archive, config_dir):
+    from coppertrail.ui import app
+
+    pages = []
+    monkeypatch.setattr(app, "run_screenshot", lambda bridge, page, out, size: pages.append(page))
+    monkeypatch.setattr(app, "run_window", lambda api, page, size: pages.append(page))
+    app.main(["--data-dir", str(archive), "--screenshot", "x.png", "--view", "item"])
+    app.main(["--data-dir", str(archive), "--view", "item"])
+    assert pages == ["index.html#item", "index.html"]  # the window takes a file path
