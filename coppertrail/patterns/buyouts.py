@@ -14,6 +14,8 @@ MAX_GAP = pd.Timedelta(minutes=60)  # scans further apart are not compared
 MIN_PREV_QTY = 10  # tiny markets flip on one auction
 RESET_BAND = 0.10  # reset: min back within 10 % of the pre-buyout min
 
+HIT_EVENTS = 2  # a hit repeats: at least two buyouts that reset
+
 RANKED_COLS = [
     "buyouts",
     "median_quantity_drop",
@@ -110,6 +112,7 @@ def buyouts(ctx: Context) -> PatternResult:
     )
     if ev.empty:
         ranked = pd.DataFrame(columns=["item_id", "name", *RANKED_COLS])
+        hits = 0
     else:
         per = ev.groupby("item_id").agg(
             buyouts=("min_jump", "size"),
@@ -119,12 +122,19 @@ def buyouts(ctx: Context) -> PatternResult:
             reset_share=("reset_at", lambda c: float(c.notna().mean())),
         )
         per = per.sort_values(["buyouts", "median_min_jump"], ascending=False)
+        done = ev[ev["reset_at"].notna()].groupby("item_id").size()
+        hits = int((done >= HIT_EVENTS).sum())
+        per["_hit"] = per.index.map(done).fillna(0) >= HIT_EVENTS
+        per = per.sort_values("_hit", ascending=False, kind="stable")
         ranked = finish_ranked(per.reset_index(), ctx, RANKED_COLS)
     return PatternResult(
         ranked=ranked,
         charts={"events": ev, "by_hour": by_hour(ev)},
         events=events,
         items_checked=int(s["item_id"].nunique()),
-        items_hit=int(ev["item_id"].nunique()),
-        note=f"{len(ev)} events.",
+        items_hit=hits,
+        note=(
+            f"{len(ev)} events in {ev['item_id'].nunique()} items. "
+            f"Hit: at least {HIT_EVENTS} buyouts that reset."
+        ),
     )

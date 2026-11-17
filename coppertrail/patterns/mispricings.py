@@ -12,6 +12,8 @@ THRESHOLD = 0.30  # min buyout at least 30 % below the reference
 REF_WINDOW = "6h"  # reference: median of p25 over the prior 6 h of scans
 REF_MIN_SCANS = 6
 
+HIT_EVENTS = 2  # a hit repeats: at least two mispricings that corrected
+
 RANKED_COLS = [
     "events",
     "median_depth",
@@ -109,6 +111,7 @@ def mispricings(ctx: Context) -> PatternResult:
     )
     if ev.empty:
         ranked = pd.DataFrame(columns=["item_id", "name", *RANKED_COLS])
+        hits = 0
     else:
         per = ev.groupby("item_id").agg(
             events=("depth", "size"),
@@ -118,12 +121,19 @@ def mispricings(ctx: Context) -> PatternResult:
             corrected_share=("corrected_at", lambda c: float(c.notna().mean())),
         )
         per = per.sort_values(["events", "median_depth"], ascending=[False, True])
+        done = ev[ev["corrected_at"].notna()].groupby("item_id").size()
+        hits = int((done >= HIT_EVENTS).sum())
+        per["_hit"] = per.index.map(done).fillna(0) >= HIT_EVENTS
+        per = per.sort_values("_hit", ascending=False, kind="stable")
         ranked = finish_ranked(per.reset_index(), ctx, RANKED_COLS)
     return PatternResult(
         ranked=ranked,
         charts={"events": ev, "by_hour": by_hour(ev)},
         events=events,
         items_checked=checked,
-        items_hit=int(ev["item_id"].nunique()),
-        note=f"{len(ev)} events.",
+        items_hit=hits,
+        note=(
+            f"{len(ev)} events in {ev['item_id'].nunique()} items. "
+            f"Hit: at least {HIT_EVENTS} mispricings that corrected."
+        ),
     )

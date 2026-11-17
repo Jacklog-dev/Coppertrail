@@ -8,11 +8,15 @@ from coppertrail.patterns.base import Context, PatternResult, pattern
 from coppertrail.patterns.baseline import CUT, TZ, _full_hours, trim_mean
 from coppertrail.patterns.common import finish_ranked
 
-BUY_HOUR = 22
-SELL_HOUR = 7
+# Buy around 22:00, sell around 07:00. Single hours are spiky and the API has night
+# gaps (whole archive hours missing), so each side is the mean over the hours present.
+BUY_HOURS = (21, 22, 23)
+SELL_HOURS = (7, 8, 9)
+MIN_WINDOW_HOURS = 1
 WINDOW = 25  # centred rolling mean, +/-12 h: the "daily mean" behind index 100
-MIN_PERIODS = 18
+MIN_PERIODS = 12
 HIT_WIN_RATE = 0.6
+HIT_MIN_NIGHTS = 5
 
 RANKED_COLS = [
     "wins",
@@ -50,16 +54,21 @@ def _indexed(h: pd.DataFrame) -> pd.DataFrame:
     return full
 
 
+def _window(full: pd.DataFrame, hours: tuple[int, ...], name: str) -> pd.DataFrame:
+    """Mean min and trend over the `hours` present, per item and local day."""
+    w = full[full["hod"].isin(hours) & full["min"].notna()]
+    out = w.groupby(["item_id", "day"]).agg(
+        n=("min", "size"), price=("min", "mean"), trend=("min_trend", "mean")
+    )
+    out = out[out["n"] >= MIN_WINDOW_HOURS].drop(columns="n")
+    return out.rename(columns={"price": name, "trend": f"{name}_trend"}).reset_index()
+
+
 def _nights(full: pd.DataFrame) -> pd.DataFrame:
-    cols = ["item_id", "day", "min", "min_trend"]
-    buy = full[full["hod"] == BUY_HOUR][cols].rename(
-        columns={"day": "night", "min": "buy", "min_trend": "buy_trend"}
-    )
-    sell = full[full["hod"] == SELL_HOUR][cols].rename(
-        columns={"min": "sell", "min_trend": "sell_trend"}
-    )
-    sell["night"] = sell["day"] - pd.Timedelta(days=1)
-    df = buy.merge(sell.drop(columns="day"), on=["item_id", "night"]).dropna()
+    buy = _window(full, BUY_HOURS, "buy").rename(columns={"day": "night"})
+    sell = _window(full, SELL_HOURS, "sell")
+    sell["night"] = sell.pop("day") - pd.Timedelta(days=1)
+    df = buy.merge(sell, on=["item_id", "night"]).dropna()
     df = df[(df["buy"] > 0) & (df["buy_trend"] > 0)]
     # Detrend: what the sell price would be had the item's rolling mean not moved overnight.
     drift = df["sell_trend"] / df["buy_trend"]
@@ -80,8 +89,9 @@ def _nights(full: pd.DataFrame) -> pd.DataFrame:
     data=("hourly", "snapshot", "items"),
     method=(
         "Hourly min, p25 and quantity as an index (100 = the item's centred 25 h mean), "
-        "by CET hour. Backtest: buy at the 22:00 min, sell at the next 07:00 min after "
-        "the 5 % cut, detrended by the overnight change of the rolling mean."
+        "by CET hour. Backtest: buy at the mean min 21:00-24:00, sell at the next "
+        "morning's mean min 07:00-10:00 (hours present) after the 5 % cut, detrended "
+        "by the overnight change of the rolling mean."
     ),
 )
 def daily_rhythm(ctx: Context) -> PatternResult:
@@ -122,7 +132,11 @@ def daily_rhythm(ctx: Context) -> PatternResult:
     per["confidence"] = [
         confidence(n, w) for n, w in zip(per["nights"], per["win_rate"], strict=True)
     ]
-    per["hit"] = (per["median_result"] > 0) & (per["win_rate"] >= HIT_WIN_RATE)
+    per["hit"] = (
+        (per["median_result"] > 0)
+        & (per["win_rate"] >= HIT_WIN_RATE)
+        & (per["nights"] >= HIT_MIN_NIGHTS)
+    )
     order = {"high": 0, "medium": 1, "low": 2}
     per = per.assign(_c=per["confidence"].map(order)).sort_values(
         ["_c", "median_result"], ascending=[True, False]
@@ -150,7 +164,8 @@ def daily_rhythm(ctx: Context) -> PatternResult:
         items_checked=items_checked,
         items_hit=int(per["hit"].sum()),
         note=(
-            f"Hit: median night > 0 and at least {HIT_WIN_RATE:.0%} of nights won. "
+            f"Hit: median night > 0, at least {HIT_WIN_RATE:.0%} of nights won and "
+            f"{HIT_MIN_NIGHTS} nights tested. "
             f"At most {most} nights per item, so confidence stays "
             f"{'medium or lower' if most < 20 else 'as labelled'}; "
             "no weekday effects are claimed."
