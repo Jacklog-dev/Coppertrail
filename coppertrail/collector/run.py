@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import time
+import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -21,11 +22,13 @@ from .api import AhledgerClient, ApiError
 from .config import Config, check_cutoff
 from .gaps import format_summary, gap_report
 from .store import (
+    BUILDS,
     ECONOMY,
     GAPS,
     HOURLY,
     ITEMS,
     POPULATION,
+    RECIPES,
     RUNS,
     SCANS,
     SNAPSHOT,
@@ -42,7 +45,17 @@ EXIT_LOCKED = 2
 EXIT_CUTOFF = 3
 
 LOCK_STALE_S = 20 * 60  # a lock not refreshed for this long belongs to a dead run
-MERGE_TABLES = (SNAPSHOT, ITEMS, WATCHLIST, ECONOMY, POPULATION, HOURLY, SCANS)
+MERGE_TABLES = (
+    SNAPSHOT,
+    ITEMS,
+    WATCHLIST,
+    ECONOMY,
+    POPULATION,
+    RECIPES,
+    BUILDS,
+    HOURLY,
+    SCANS,
+)
 
 
 def utcnow() -> datetime:
@@ -204,9 +217,12 @@ class Collector:
 
         self._economy(st)
         self._population(st)
+        self._recipes(st)
+        self._builds(st)
         hourly_failed = self._series(st, watch, HOURLY, "7d", "hour", started)
         scan_entries = [e for e in watch if e.scans]
         self._series(st, scan_entries, SCANS, "24h", "observed_at", started, budget=True)
+        self._item_details(st, watch, started)
 
         errors_ratio = hourly_failed / max(1, len(watch))
         status = "ok" if hourly_failed == 0 else ("partial" if errors_ratio < 0.05 else "failed")
@@ -328,6 +344,64 @@ class Collector:
             # Soft error: ahledger.com (not the API) sits behind a bot check.
             self._note(f"population CSV skipped: {exc}")
         self._sync_stats()
+
+    def _recipes(self, st: RunState) -> None:
+        if not self.cfg.fetch_recipes or self.store.is_staged(st.run_id, RECIPES, "recipes"):
+            return
+        try:
+            rows = parse.recipe_rows(self.client.crafting(), self.now(), st.run_id)
+            self.store.stage(st.run_id, RECIPES, "recipes", rows)
+            log.info("recipes: %d rows", len(rows))
+        except (ApiError, KeyError, ValueError) as exc:
+            self._note(f"recipes failed: {exc}")
+        self._sync_stats()
+
+    def _builds(self, st: RunState) -> None:
+        if not self.cfg.fetch_builds or self.store.is_staged(st.run_id, BUILDS, "builds"):
+            return
+        try:
+            rows = parse.build_rows(self.client.builds_feed(), self.now(), st.run_id)
+            self.store.stage(st.run_id, BUILDS, "builds", rows)
+            log.info("builds: %d rows", len(rows))
+        except (ApiError, ValueError, ET.ParseError) as exc:
+            self._note(f"builds feed skipped: {exc}")
+        self._sync_stats()
+
+    def _detailed_ids(self) -> set[int]:
+        tbl = self.store.read_all(ITEMS)
+        if tbl is None or "vendor_price" not in tbl.column_names:
+            return set()
+        return {
+            r["item_id"]
+            for r in tbl.select(
+                ["item_id", "subclass", "required_level", "vendor_price"]
+            ).to_pylist()
+            if r["subclass"] is not None
+            or r["vendor_price"] is not None
+            or r["required_level"] is not None
+        }
+
+    def _item_details(self, st: RunState, watch: list[Entry], started: datetime) -> None:
+        """Subclass and vendor price for watchlist items without them, capped per run."""
+        if not self.cfg.fetch_item_details:
+            return
+        known = self._detailed_ids()
+        done = {n for n in self.store.staged_names(st.run_id, ITEMS) if n.startswith("item-")}
+        todo = [
+            e.item_id for e in watch if e.item_id not in known and f"item-{e.item_id}" not in done
+        ][: max(0, self.cfg.item_details_per_run - len(done))]
+        log.info("item details: %d to fetch", len(todo))
+        deadline = started + timedelta(minutes=self.cfg.max_run_minutes)
+        for k, iid in enumerate(todo):
+            if self.now() > deadline:
+                self._note(f"item details: time budget reached, skipped {len(todo) - k} items")
+                break
+            try:
+                row = parse.item_detail_row(self.client.item(iid), self.now())
+                self.store.stage(st.run_id, ITEMS, f"item-{iid}", [row])
+            except (ApiError, KeyError, ValueError) as exc:
+                log.warning("item details %s failed: %s", iid, exc)
+            self._sync_stats()
 
     def _series(
         self,

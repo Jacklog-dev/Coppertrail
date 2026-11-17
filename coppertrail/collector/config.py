@@ -49,7 +49,9 @@ DEFAULT_PINNED: tuple[int, ...] = (
 class Config:
     market: str = "forever.normal.alliance.eu"
     base_url: str = "https://api.ahledger.com"
+    game: str = "forever"  # the ?game= of /v1/items
     population_url: str = "https://ahledger.com/wow-forever/population/data.csv"
+    builds_url: str = "https://ahledger.com/feed/builds.xml"
     user_agent: str = "Coppertrail-collector/0.1 (+https://github.com/Jacklog-dev/Coppertrail)"
 
     # API archiving. AHledger's terms change on 2026-12-10: keeping answers past
@@ -78,7 +80,16 @@ class Config:
     scans_top_n: int = 200
     fetch_scans: bool = True
 
-    # Time budget: once exceeded, the remaining per-scan fetches are skipped.
+    # Item details (subclass, vendor price) from /v1/items, one request per item and
+    # fetched once. Capped per run so the first backfill spreads over a few runs.
+    fetch_item_details: bool = True
+    item_details_per_run: int = 200
+
+    # Recipes (/v1/crafting) and the builds feed: one request each per run.
+    fetch_recipes: bool = True
+    fetch_builds: bool = True
+
+    # Time budget: once exceeded, the remaining per-scan and item-detail fetches are skipped.
     max_run_minutes: float = 60.0
     # An interrupted run younger than this is resumed; older ones are finalized.
     resume_max_age_hours: float = 12.0

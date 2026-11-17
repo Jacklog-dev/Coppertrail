@@ -140,6 +140,25 @@ class AhledgerClient:
         items = ",".join(str(i) for i in item_ids)
         return self.get(f"/v1/tooltip/{self.cfg.market}", params={"items": items}).json()
 
+    def item(self, item_id: int) -> dict:
+        """Master data of one item (one per request; a comma list is rejected)."""
+        return self.get(f"/v1/items/{item_id}", params={"game": self.cfg.game}).json()
+
+    def crafting(self) -> dict:
+        """Every recipe of the market. all=true adds recipes with unpriced reagents;
+        without it at most 500 come back, and limit may not exceed 3000."""
+        return self.get(
+            f"/v1/crafting/{self.cfg.market}", params={"all": "true", "limit": "3000"}
+        ).json()
+
+    def builds_feed(self) -> str:
+        """RSS feed of game builds on the website. No retries, like the population CSV."""
+        resp = self.get(self.cfg.builds_url, retries=0)
+        ctype = resp.headers.get("Content-Type", "")
+        if "html" in ctype:
+            raise ApiError(f"builds feed returned {ctype}, not XML")
+        return resp.text
+
     def economy(self) -> dict:
         return self.get(f"/v1/economy/{self.cfg.market}").json()
 
