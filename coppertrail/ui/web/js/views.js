@@ -41,7 +41,7 @@ export function render(container, state, viewId, banner = null) {
       { class: "card-head" },
       el("div", {}, el("h2", { class: "card-title", text: "Items in the filter" }), el("div", { class: "sub", text: more || "Placeholder until this view is built" })),
     ),
-    itemTable(items.rows),
+    items.rows.length ? itemTable(items.rows) : el("p", { class: "muted", text: "This data folder has prices but no item names yet." }),
   );
   replace(container, banner, head, body);
   container.scrollTop = 0;

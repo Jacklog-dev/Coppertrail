@@ -136,7 +136,11 @@ def history_gap(
     `needed`/`have` count `unit`s (days, resets, weekends); `missing_days` is how many days
     of data are still missing (defaults to `needed - have` for days).
     """
-    missing = missing_days if missing_days is not None else max(0, needed - have)
+    if missing_days is None:
+        if unit != "day":
+            raise ValueError("missing_days is required when unit is not 'day'")
+        missing_days = max(0, needed - have)
+    missing = missing_days
     return {
         "title": fmt.needs_more(missing),
         "why": (

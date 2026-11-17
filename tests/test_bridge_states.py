@@ -151,3 +151,10 @@ def test_history_gap_custom_unit():
     assert g["progress"] == "3 of 6 resets"
     assert g["why"].startswith("“Reset day” needs 6 resets of history.")
     assert g["ready"] == ""
+
+
+def test_history_gap_needs_days_for_other_units():
+    import pytest
+
+    with pytest.raises(ValueError):
+        history_gap("Reset day", needed=6, have=3, ready_on=None, unit="reset")

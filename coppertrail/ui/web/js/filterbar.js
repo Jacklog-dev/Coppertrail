@@ -45,6 +45,16 @@ function send(name, ...args) {
 
 const change = (partial) => send("set_filters", partial);
 
+/** Change filters from outside the bar (no-match chips): same ordered queue as the bar. */
+export function setFilters(partial) {
+  return change(partial);
+}
+
+/** "Reset all filters" from outside the bar: also drops typed-but-unsaved search text. */
+export function resetFilters() {
+  return reset();
+}
+
 function reset() {
   ui.open = null;
   ui.searchText = null;

@@ -72,14 +72,14 @@ function dismissBanner() {
   render();
 }
 
-async function filterChange(partial) {
-  render(await (partial ? call("set_filters", partial) : call("reset_filters")));
+function filterChange(partial) {
+  return partial ? filterbar.setFilters(partial) : filterbar.resetFilters();
 }
 
-/** Runs a bridge call that re-reads the data folder, with the loading state meanwhile. */
+/** Runs a bridge call that re-reads the data folder, with the loading state meanwhile (text null: none). */
 async function withLoading(text, work) {
   ui.loading = text;
-  render();
+  if (text) render();
   try {
     const next = await work();
     ui.loading = null;
@@ -98,8 +98,9 @@ function setDataDir(path) {
 
 async function chooseDataFolder() {
   if (await inApp()) {
-    // The native folder dialog blocks; the loading state shows once a folder is chosen.
-    return withLoading("Reading the data folder…", () => call("pick_data_folder"));
+    // One call opens the native dialog and reads the chosen folder; a loading state here
+    // would show behind the dialog (and on cancel), so there is none.
+    return withLoading(null, () => call("pick_data_folder"));
   }
   const path = window.prompt("Data folder (dev mode)", state?.dataDir ?? "");
   if (path) return setDataDir(path);
@@ -133,7 +134,7 @@ on("pull", finishPull);
 async function openCredit(event) {
   event.preventDefault(); // synchronously, before any await, or the link opens as well
   if (await inApp()) call("open_credit"); // the system browser, never inside the app window
-  else window.open(state.creditUrl, "_blank", "noopener");
+  else window.open(state?.creditUrl ?? event.currentTarget.href, "_blank", "noopener");
 }
 
 await preload("overview", "item", "patterns", "movers", "folder", "download", "external", "refresh", "clock", "sliders");

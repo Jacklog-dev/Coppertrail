@@ -262,7 +262,7 @@ function tooltip(format, markers) {
         const t = u.data[0][idx];
         tip.replaceChildren(el("div", { class: "muted", text: dateTime(t) }));
         u.series.forEach((s, i) => {
-          if (i === 0 || !s.show || s._hidden) return;
+          if (i === 0 || !s.show) return;
           const v = u.data[i][idx];
           if (v == null && s._bars) return; // the other bar series holds this bar
           const sw = el("i", { class: "swatch" });
@@ -302,6 +302,14 @@ function markerSwatch(kind) {
 
 const groups = new Map(); // sync key -> Set of uPlot instances
 
+/**
+ * Destroys charts whose element left the page (views replace their DOM on re-render), so
+ * groups do not keep dead charts and their tooltip divs do not pile up in <body>.
+ */
+function pruneDetached(key) {
+  for (const u of [...(groups.get(key) ?? [])]) if (!u.root.isConnected) u.destroy();
+}
+
 /** Zooming one chart of a group zooms the others (the cursor is linked by cursor.sync). */
 function linked(key) {
   let busy = false;
@@ -309,10 +317,12 @@ function linked(key) {
     hooks: {
       init: (u) => {
         if (!groups.has(key)) groups.set(key, new Set());
+        pruneDetached(key);
         groups.get(key).add(u);
       },
       setScale: (u, scaleKey) => {
         if (scaleKey !== "x" || busy) return;
+        pruneDetached(key);
         const { min, max } = u.scales.x;
         busy = true;
         try {
@@ -421,7 +431,16 @@ export function chart(target, cfg) {
   for (let i = 1; i < u.series.length; i++) Object.assign(u.series[i], { _bars: opts.series[i]._bars, _format: opts.series[i]._format });
   u.reset = () => u.setScale("x", { min: x[0], max: x[x.length - 1] }); // linked() passes it on
   target.uplot = u; // for views that find a chart by its element (and for checks in --dev)
-  new ResizeObserver(() => u.setSize({ width: Math.max(200, target.clientWidth), height })).observe(target);
+  const ro = new ResizeObserver(() => {
+    // Detached (the view re-rendered): free the chart, its tooltip and its group entry.
+    if (!target.isConnected) {
+      ro.disconnect();
+      u.destroy();
+      return;
+    }
+    u.setSize({ width: Math.max(200, target.clientWidth), height });
+  });
+  ro.observe(target);
   return u;
 }
 

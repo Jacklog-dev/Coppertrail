@@ -8,16 +8,17 @@ import { icon } from "./icons.js";
  * once one is known) instead of the button. Before the first state only the credit shows.
  */
 export function render(container, state, { pulling, pct = null, error, onPull, onCredit }) {
+  if (!state) {
+    // Before the first state: the credit as text (its link comes from the bridge).
+    replace(container, el("div", { class: "spacer" }), el("span", { class: "credit", text: "Prices from AHledger" }));
+    return;
+  }
   const credit = el(
     "a",
-    { class: "credit", attrs: { href: state?.creditUrl ?? "https://ahledger.com", target: "_blank", rel: "noopener" }, on: { click: onCredit } },
+    { class: "credit", attrs: { href: state.creditUrl, target: "_blank", rel: "noopener" }, on: { click: onCredit } },
     "Prices from AHledger",
     icon("external", 13),
   );
-  if (!state) {
-    replace(container, el("div", { class: "spacer" }), credit);
-    return;
-  }
   const st = state.status;
   const warn = st.stale || st.error;
   const mark = st.stale ? icon("clock", 14) : st.empty && !st.error ? null : el("span", { class: "dot " + (warn ? "attention" : "rise") });
