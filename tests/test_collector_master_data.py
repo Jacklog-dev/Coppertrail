@@ -252,3 +252,36 @@ def test_recipes_and_builds_are_soft_errors(tmp_path):
     assert st.read_all(RECIPES) is None and st.read_all(BUILDS) is None
     feed_calls = [p for p, _ in api.calls if p == "/feed/builds.xml"]
     assert len(feed_calls) == 1  # no retries against the website
+
+
+def test_rfc822_without_zone_is_utc():
+    assert parse._rfc822_utc("Fri, 13 Nov 2026 02:38:25 -0000") == datetime(
+        2026, 11, 13, 2, 38, 25, tzinfo=UTC
+    )
+
+
+def test_resumed_details_respect_cap_and_skip_staged(tmp_path):
+    api = MasterApi()
+    c = make(tmp_path, api, item_details_per_run=2)
+    from coppertrail.collector.run import RunState
+
+    c.state = RunState(run_id="20261116T200000Z", started_at=NOW.isoformat())
+    c.store.run_dir(c.state.run_id).mkdir(parents=True)
+    c._sync_stats()
+    watch = c._watchlist(c.state, NOW)  # ranks: 2, 1, 50
+    c._item_details(c.state, watch[:1], NOW)  # item 2 staged, then the process "died"
+    api.calls.clear()
+    c._item_details(c.state, watch, NOW)
+    assert [p for p, _ in api.calls if p.startswith("/v1/items/")] == ["/v1/items/1"]
+
+
+def test_detailed_items_skip_tooltip_and_failures_are_noted(tmp_path):
+    api = MasterApi(missing_items={1})
+    make(tmp_path, api).run()
+    st = make(tmp_path, api).store
+    assert "item details failed for 1 items" in st.read_all(RUNS).to_pylist()[0]["notes"]
+    api.calls.clear()
+    make(tmp_path, api, now=NOW + timedelta(days=1)).run()
+    tips = [p for p, _ in api.calls if "/tooltip/" in p]
+    assert tips == []  # 2 and 50 have detail rows, 1 and 3 have tooltip qualities
+    assert _latest_items(st)[2]["vendor_price"] == 20

@@ -251,10 +251,11 @@ class Collector:
 
         sticky = self._sticky_ids(started)
         qualities = self._known_qualities(st)
+        detailed = self._detailed_ids()  # a /v1/items row is newer and fuller than tooltip
         need = [
             i
             for i in dict.fromkeys(rule_candidates(pt.rows, self.cfg) + sorted(sticky))
-            if i not in qualities
+            if i not in qualities and i not in detailed
         ]
         if need:
             log.info("fetching master data for %d items via /tooltip", len(need))
@@ -368,14 +369,17 @@ class Collector:
         self._sync_stats()
 
     def _detailed_ids(self) -> set[int]:
+        """Items whose newest stored row came from /v1/items (any detail field set)."""
         tbl = self.store.read_all(ITEMS)
         if tbl is None or "vendor_price" not in tbl.column_names:
             return set()
+        latest: dict[int, dict] = {}
+        cols = ["item_id", "subclass", "required_level", "vendor_price"]
+        for r in tbl.sort_by("fetched_at").select(cols).to_pylist():
+            latest[r["item_id"]] = r
         return {
-            r["item_id"]
-            for r in tbl.select(
-                ["item_id", "subclass", "required_level", "vendor_price"]
-            ).to_pylist()
+            i
+            for i, r in latest.items()
             if r["subclass"] is not None
             or r["vendor_price"] is not None
             or r["required_level"] is not None
@@ -392,6 +396,7 @@ class Collector:
         ][: max(0, self.cfg.item_details_per_run - len(done))]
         log.info("item details: %d to fetch", len(todo))
         deadline = started + timedelta(minutes=self.cfg.max_run_minutes)
+        failed: list[int] = []
         for k, iid in enumerate(todo):
             if self.now() > deadline:
                 self._note(f"item details: time budget reached, skipped {len(todo) - k} items")
@@ -400,8 +405,11 @@ class Collector:
                 row = parse.item_detail_row(self.client.item(iid), self.now())
                 self.store.stage(st.run_id, ITEMS, f"item-{iid}", [row])
             except (ApiError, KeyError, ValueError) as exc:
+                failed.append(iid)
                 log.warning("item details %s failed: %s", iid, exc)
             self._sync_stats()
+        if failed:
+            self._note(f"item details failed for {len(failed)} items: {failed[:20]}")
 
     def _series(
         self,

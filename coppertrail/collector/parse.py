@@ -172,6 +172,12 @@ _BUILD_TITLE = re.compile(
 )
 
 
+def _rfc822_utc(value: str) -> datetime:
+    """RFC 822 date as aware UTC; '-0000' (zone unknown) parses naive and is taken as UTC."""
+    dt = parsedate_to_datetime(value.strip())
+    return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+
+
 def build_rows(xml_text: str, fetched_at: datetime, run_id: str) -> list[dict]:
     """Rows from the RSS feed ahledger.com/feed/builds.xml. Titles look like
     'WoW Forever [stage ]1.60.1 (build 70938): ...'; build, version and stage are null
@@ -191,7 +197,7 @@ def build_rows(xml_text: str, fetched_at: datetime, run_id: str) -> list[dict]:
                 "version": m["version"] if m else None,
                 "stage": (m["stage"] or None) if m else None,
                 "title": title,
-                "published_at": parsedate_to_datetime(pub.strip()).astimezone(UTC),
+                "published_at": _rfc822_utc(pub),
                 "url": url,
                 "description": (it.findtext("description") or "").strip() or None,
                 "source": SOURCE_API,
