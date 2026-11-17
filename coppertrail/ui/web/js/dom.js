@@ -30,3 +30,16 @@ export function replace(node, ...children) {
   node.replaceChildren();
   return append(node, children);
 }
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/**
+ * svg("path", {d: "M0 0 L10 10", class: "x"}, ...children): an SVG element. Colours go in as
+ * CSS variables through `style` (for example {style: "stroke: var(--accent)"}), never as hex.
+ */
+export function svg(tag, attrs = {}, ...children) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) if (v != null && v !== false) node.setAttribute(k, String(v));
+  for (const child of children.flat(Infinity)) if (child) node.append(child);
+  return node;
+}

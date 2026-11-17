@@ -1,9 +1,10 @@
 // Style sample (HANDOVER 9, step 6.1): fonts, tabular digits, colours, coins, controls, a chart.
 // All numbers are invented sample values, not market data.
-import { change, coin } from "./coins.js";
-import { legend, lineChart } from "./charts.js";
+import { axisCoins, change, coin } from "./coins.js";
+import { barChart, chart, chartCard, legend, lineChart, markerLegend, rangeBar, sparkline } from "./charts.js";
 import { el } from "./dom.js";
 import { icon } from "./icons.js";
+import * as states from "./states.js";
 
 const root = document.getElementById("sample");
 const card = (title, sub, ...body) =>
@@ -117,6 +118,158 @@ const series = [
   { label: "Farmable goods", color: "s2", width: "secondary", values: farmable },
 ];
 const plot = el("div", { class: "chart" });
-const head = el("div", { class: "card-head" }, el("div", {}, el("h2", { class: "card-title", text: "Price index, farmable vs scarce goods" }), el("div", { class: "sub", text: "17 Oct – 16 Nov 2026 · 30 d · 100 = 17 Oct" })), el("div", { class: "row" }, legend(series), el("button", { class: "btn icon", attrs: { title: "Reset zoom" }, on: { click: () => chart.reset() } }, icon("reset", 16))));
+const head = el("div", { class: "card-head" }, el("div", {}, el("h2", { class: "card-title", text: "Price index, farmable vs scarce goods" }), el("div", { class: "sub", text: "17 Oct – 16 Nov 2026 · 30 d · 100 = 17 Oct" })), el("div", { class: "row" }, legend(series), el("button", { class: "btn icon", attrs: { title: "Reset zoom" }, on: { click: () => indexChart.reset() } }, icon("reset", 16))));
 root.append(el("section", { class: "card wide" }, head, plot));
-const chart = lineChart(plot, { x, series, refLine: 100, height: 300, format: (v) => v.toFixed(1) });
+const indexChart = lineChart(plot, { x, series, refLine: 100, height: 300, format: (v) => v.toFixed(1) });
+
+// Chart building blocks (HANDOVER 8b "Charts in uPlot", Item detail and Movers mock-ups) -------
+
+const section = (title, sub) => el("div", { class: "wide section" }, el("h1", { class: "h1", text: title }), el("div", { class: "sub", text: sub }));
+root.append(section("Chart blocks", "Linked x-axes, band, vendor floor, event markers, bars, stale tail, sparkline, range bar"));
+
+// Price and supply: lowest buyout + lower quartile with the band, vendor floor, markers;
+// listed quantity as bars below on a linked x-axis, shock bars in s3.
+const points = 30 * 4; // 6-hour points
+const px = Array.from({ length: points }, (_, i) => start + i * 6 * 3600);
+const buyout = px.map((_, i) => 1500 + 220 * Math.sin(i / 9) + (i > 70 && i < 78 ? -520 : 0) + i * 2);
+const p25 = buyout.map((v, i) => v + 180 + 60 * Math.sin(i / 5));
+const qty = px.map((_, i) => Math.round(9000 + 2500 * Math.sin(i / 7) + (i >= 70 && i < 76 ? 14000 : 0)));
+const shock = qty.map((_, i) => i >= 70 && i < 76);
+const markers = [
+  { t: px[22], kind: "buyout", label: "Buyout · 1,240 units cleared" },
+  { t: px[71], kind: "shock", label: "Supply shock · listed qty ×2.4 in 6 h" },
+  { t: px[74], kind: "mispricing", label: "Mispricing · 9s 80c vs 15s usual" },
+];
+const priceSeries = [
+  { label: "Lowest buyout", color: "s1", width: "primary", values: buyout },
+  { label: "Lower quartile", color: "s2", width: "tertiary", values: p25 },
+];
+const kilo = (v) => (v >= 1000 ? Math.round(v / 1000) + "k" : String(Math.round(v)));
+const priceCard = chartCard({
+  title: "Price and supply",
+  sub: "17 Oct – 16 Nov 2026 · 30 d · drag to zoom, both plots follow",
+  legend: [...priceSeries, { label: "Vendor floor", color: "text3", dashed: true }, { label: "Listed quantity", color: "s6", bars: true }, ...markerLegend()],
+  plots: 2,
+  className: "wide",
+  build: (top, bottom) => [
+    chart(top, { x: px, series: priceSeries, bands: [{ upper: 1, lower: 0, color: "s2" }], refLines: [{ value: 750, label: "Vendor floor 7s 50c" }], markers, sync: "sample-item", height: 240, xAxis: false, format: axisCoins }),
+    barChart(bottom, { x: px, values: qty, label: "Listed quantity", highlight: shock, highlightLabel: "Listed (supply shock)", sync: "sample-item", height: 140, format: kilo }),
+  ],
+});
+root.append(priceCard.node);
+priceCard.mount();
+
+// Stale data: the x-axis runs on to "now", the part after the last point is shaded.
+const staleX = x.filter((_, i) => i < 27 * 24);
+const staleOpts = () => ({
+  x: staleX,
+  series: series.map((s) => ({ ...s, fill: false, values: s.values.slice(0, staleX.length) })),
+  stale: { from: staleX[staleX.length - 1], to: x[x.length - 1], label: "no data since 13 Nov 07:55" },
+  format: (v) => v.toFixed(0),
+});
+const staleCard = chartCard({
+  title: "Data is stale",
+  sub: "17 Oct – 16 Nov 2026 · last point 13 Nov 07:55",
+  legend: series,
+  build: (p) => chart(p, { ...staleOpts(), height: 240 }),
+});
+const dx = Array.from({ length: 30 }, (_, i) => start + i * 86400);
+const margin = dx.map((_, i) => Math.round(400 + 900 * Math.sin(i / 3) + i * 20));
+const barCard = chartCard({
+  title: "Daily margin",
+  sub: "17 Oct – 16 Nov 2026 · bars with a 28 % gap",
+  legend: [{ label: "Margin", color: "s6", bars: true }, { label: "Worth it", color: "rise", bars: true }],
+  build: (p) =>
+    barChart(p, { x: dx, values: margin.map((v) => Math.max(0, v)), label: "Margin", highlight: margin.map((v) => v > 900), highlightColor: "rise", highlightLabel: "Worth it", refLines: [{ value: 900, label: "threshold 9s" }], height: 240, format: axisCoins }),
+});
+root.append(staleCard.node, barCard.node);
+staleCard.mount();
+barCard.mount();
+
+// Sparklines and range bars in a table.
+const walk = (seed, drift) => Array.from({ length: 28 }, (_, i) => 100 + drift * i + 6 * Math.sin(i / 2 + seed));
+const moverRows = [
+  ["Waylaid Crate: Journeyman Parts", walk(1, 3), "rise", "▲ +488 %", { low: 3000, high: 6000, usual: 4500, current: 1800 }],
+  ["Mote of Unstable Magic", walk(2, -3), "fall", "▼ −98 %", { low: 900, high: 1500, usual: 1200, current: 1100 }],
+  ["Thorium Bar", walk(3, 0.1), "rise", "▲ +3.1 %", { low: 5000, high: 7000, usual: 6000, current: 3900 }],
+];
+const moverTable = el(
+  "table",
+  { class: "data" },
+  el("thead", {}, el("tr", {}, el("th", { text: "Item" }), el("th", { text: "7 d" }), el("th", { class: "num", text: "Price change" }), el("th", { text: "Where it sits" }))),
+  el(
+    "tbody",
+    {},
+    moverRows.map(([name, vals, dir, pct, range]) => el("tr", {}, el("td", { text: name }), el("td", {}, sparkline(vals, dir)), el("td", { class: "num" }, change(pct, dir)), el("td", {}, rangeBar(range)))),
+  ),
+);
+root.append(card("Sparkline and range bar", "96 × 26 with end dot · range: typical, usual tick, current", moverTable));
+
+// Layout hooks (HANDOVER 8b "Resizing") ---------------------------------------------------------
+const tile = (label, value, foot, extra = false) => el("div", { class: "card" + (extra ? " tile-extra" : "") }, el("div", { class: "label", text: label }), el("div", { class: "kpi", text: value }), el("div", { class: "sub", text: foot }));
+root.append(
+  section("Layout hooks", "4 tiles, 6 from 2400 px · the 2:1 split stacks at 1440 px"),
+  el(
+    "div",
+    { class: "wide tiles" },
+    tile("Items tracked", "1,284", "412 pass filters"),
+    tile("Median price · 7 d", "−3.2 %", "invented"),
+    tile("Supply · 7 d", "+11.4 %", "invented"),
+    tile("Index divergence", "+19.8 pts", "invented"),
+    tile("Gold listed", "2,412,000", "ultrawide only", true),
+    tile("Mispricings now", "7", "ultrawide only", true),
+  ),
+  el("div", { class: "wide split" }, card("Two thirds", "split · main"), card("One third", "split · side")),
+);
+
+// States (HANDOVER 8b "States", mock-up States.png) ---------------------------------------------
+root.append(section("States", "Every value invented · buttons do nothing here"));
+const noop = () => {};
+const demo = (label, ...body) => el("section", { class: "card state-demo" }, el("div", { class: "demo-label", text: label }), ...body);
+const staleMini = el("div", { class: "chart" });
+staleMini.style.marginTop = "14px";
+root.append(
+  el(
+    "div",
+    { class: "wide states" },
+    demo("A · No data yet", states.noData({ dataDir: "D:\\Coppertrail\\data", status: { canPull: true, error: false, text: "No data yet" }, pulling: false, onSetDir: noop, onChange: noop, onPull: noop })),
+    demo("B · Data is stale", states.staleBanner({ banner: { title: "Data is 3 days old.", detail: "Charts end on 13 Nov, 07:55." }, status: { canPull: true }, pulling: false, onPull: noop, onDismiss: noop }), staleMini),
+    demo(
+      "C · Filter matches nothing",
+      states.noMatch(
+        {
+          sub: "0 of 1,284 items · remove one to widen the search",
+          chips: [{ label: "Group: Scarce goods" }, { label: "Class: Recipe" }, { label: "Search: “crate”" }, { label: "Min sales/day ≥ 5,000" }],
+          hint: { prefix: "Closest: without", label: "Min sales/day ≥ 5,000", result: "→ 38 items" },
+        },
+        { onClear: noop, onReset: noop },
+      ),
+    ),
+    demo(
+      "D · Too little history",
+      el("div", { class: "tabs" }, ["Daily rhythm", "Weekend effect", "Reset day"].map((t, i) => el("button", { class: "tab", text: t, attrs: { "aria-selected": i === 2 ? "true" : "false" } }))),
+      states.needsHistory({
+        title: "Needs 3 more weeks of data",
+        why: "“Reset day” needs 6 resets of history. The archive covers 3 so far — too few to separate a pattern from noise.",
+        progress: "3 of 6 resets",
+        ready: "ready around 7 Dec 2026",
+        pct: 50,
+      }),
+    ),
+    demo("E · Loading", states.loading({ text: "Reading 142 days · 1,284 items…", pct: 62 })),
+    demo(
+      "F · Pull failed",
+      states.pullFailed(
+        {
+          title: "Pull failed",
+          cause: "git stopped: unable to access the data repository: Could not resolve host.",
+          reassurance: "Your local archive is unchanged — everything up to 16 Nov, 08:42 is still here.",
+          request: "git pull --ff-only · exit 1 · 08:44:10",
+          log: "fatal: unable to access the data repository: Could not resolve host",
+        },
+        { showLog: false, canPull: true, onRetry: noop, onToggleLog: noop },
+      ),
+    ),
+  ),
+);
+chart(staleMini, { ...staleOpts(), height: 230 });

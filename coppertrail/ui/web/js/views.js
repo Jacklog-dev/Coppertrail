@@ -23,8 +23,8 @@ function itemTable(rows) {
   );
 }
 
-/** render(container, state, viewId) */
-export function render(container, state, viewId) {
+/** render(container, state, viewId, banner?) — `banner` (the stale-data notice) goes on top. */
+export function render(container, state, viewId, banner = null) {
   const view = VIEWS.find((v) => v.id === viewId) ?? VIEWS[0];
   const { items, window } = state;
   const head = el(
@@ -41,8 +41,8 @@ export function render(container, state, viewId) {
       { class: "card-head" },
       el("div", {}, el("h2", { class: "card-title", text: "Items in the filter" }), el("div", { class: "sub", text: more || "Placeholder until this view is built" })),
     ),
-    items.rows.length ? itemTable(items.rows) : el("p", { class: "muted", text: state.status.empty ? "No prices yet." : "No items match these filters." }),
+    itemTable(items.rows),
   );
-  replace(container, head, body);
+  replace(container, banner, head, body);
   container.scrollTop = 0;
 }

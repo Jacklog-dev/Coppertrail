@@ -38,6 +38,7 @@
 .btn.primary { background: var(--accent); color: var(--accentOn); border: 0; font-weight: 700; padding: 0 14px; }
 .btn.primary:hover:not(:disabled) { background: var(--accentHover); }
 .btn.primary:active:not(:disabled) { background: var(--accentPressed); }
+.btn.primary:disabled { background: var(--raised); color: var(--textDis); border: 1px solid var(--border); }
 .btn.ghost { height: 28px; background: transparent; color: var(--text2); font-size: var(--type-small-size); gap: 6px; }
 .btn.ghost:hover:not(:disabled) { color: var(--text1); }
 .btn.link {
@@ -157,6 +158,27 @@ table.data td.muted { color: var(--text2); }
 /* Charts ---------------------------------------------------------------------- */
 .legend { display: flex; gap: var(--space-4); font-size: var(--type-small-size); color: var(--text2); }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
-.legend i { display: inline-block; width: 14px; height: 2px; border-radius: 1px; }
+.legend i { display: inline-block; width: 14px; height: 2px; border-radius: 1px; background: var(--swatch); }
+.legend i.dashed { background: none; border-top: 2px dashed var(--swatch); height: 0; }
+.legend i.bar { width: 8px; height: 10px; border-radius: 1px; }
+.card-tools { display: flex; align-items: center; gap: var(--space-4); flex: none; }
+.btn.slim-icon { width: 28px; height: 28px; }
+.chart-tip .tip-row { display: flex; align-items: center; gap: 6px; }
+.chart-tip .tip-val { margin-left: auto; padding-left: var(--space-4); }
+.chart-tip .swatch { display: inline-block; width: 14px; height: 2px; flex: none; }
+/* Event marker shapes (also drawn on the canvas by charts.js): --marker is the series colour. */
+i.marker { display: inline-block; width: 9px; height: 9px; flex: none; background: var(--marker); }
+i.marker.diamond { transform: rotate(45deg) scale(0.8); }
+i.marker.triangle { clip-path: polygon(0 0, 100% 0, 50% 100%); }
+.sparkline { flex: none; overflow: visible; vertical-align: middle; }
+.sparkline path { fill: none; stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; stroke: var(--text3); }
+.sparkline circle { fill: var(--text3); }
+.sparkline.rise path { stroke: var(--rise); } .sparkline.rise circle { fill: var(--rise); }
+.sparkline.fall path { stroke: var(--fall); } .sparkline.fall circle { fill: var(--fall); }
+.rangebar { flex: none; vertical-align: middle; }
+.rangebar .track { stroke: var(--border); stroke-width: 1; }
+.rangebar .typical { stroke: var(--borderStrong); stroke-width: 4; stroke-linecap: round; }
+.rangebar .usual { stroke: var(--text2); stroke-width: 1.5; }
+.rangebar .current { fill: var(--s4); }
 .chart { position: relative; }
 .chart .u-select { background: rgb(from var(--accent) r g b / 0.12); }

@@ -13,6 +13,7 @@ from coppertrail.ui import tokens
 WEB_DIR = Path(__file__).parent / "web"
 TOKENS_CSS = WEB_DIR / "css" / "tokens.css"
 FALLBACK = '"Segoe UI Symbol", serif'  # ▲ ▼ are missing from Caudex
+MONO_FALLBACK = '"Cascadia Mono", Consolas, monospace'  # the mono font is not bundled
 
 
 def _kebab(name: str) -> str:
@@ -38,6 +39,7 @@ def tokens_css() -> str:
             f"  --type-{role}-transform: {'uppercase' if upper else 'none'};",
             f"  --type-{role}-spacing: {_spacing(spacing)};",
         ]
+    lines.append(f'  --type-mono-family: "{tokens.FONT_MONO}", {MONO_FALLBACK};')
     lines += [f"  --space-{i}: {v}px;" for i, v in enumerate(tokens.SPACE, start=1)]
     lines += [f"  --radius-{_kebab(k)}: {v}px;" for k, v in tokens.RADIUS.items()]
     lines += [f"  --size-{_kebab(k)}: {v}px;" for k, v in tokens.SIZES.items()]

@@ -1,8 +1,12 @@
 // uPlot charts styled by the CHART tokens (HANDOVER 8b "Charts in uPlot"):
 // horizontal grid only, dashed reference lines and crosshair, 8 px hover dots with a
-// 2 px surface ring, a tooltip that flips left near the right edge, drag to zoom.
+// 2 px surface ring, a tooltip that flips left near the right edge, drag to zoom with a
+// reset button in the card header, bands and area fills at 12 %, bars with a 28 % gap,
+// linked x-axes (cursor.sync), event markers and the stale-data tail in draw hooks.
+// Plus two small SVG blocks for table cells: the 96×26 sparkline and the 140 px range bar.
 import uPlot from "../vendor/uPlot.esm.js";
-import { el } from "./dom.js";
+import { el, svg } from "./dom.js";
+import { icon } from "./icons.js";
 
 const TZ = "Europe/Berlin";
 
@@ -19,6 +23,7 @@ export function withAlpha(token, alpha) {
 
 const colour = (token) => cssVar(token.startsWith("--") ? token : "--" + token);
 const num = (name) => parseFloat(cssVar(name));
+const dpr = () => window.devicePixelRatio || 1;
 
 const dateFmt = new Intl.DateTimeFormat("en-GB", {
   timeZone: TZ, day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
@@ -35,14 +40,14 @@ function timeTicks(u, splits) {
   return splits.map((ts) => fmt.format(new Date(ts * 1000)));
 }
 
-function axisFont() {
-  return `${cssVar("--chart-axis-font")} ${cssVar("--type-small-family")}`;
+function font(role = "small", weight = 400) {
+  return `${weight} ${parseFloat(cssVar("--chart-axis-font")) * dpr()}px ${cssVar(`--type-${role}-family`)}`;
 }
 
 function axis(extra = {}) {
   return {
     stroke: colour("text3"),
-    font: axisFont(),
+    font: `${cssVar("--chart-axis-font")} ${cssVar("--type-small-family")}`,
     grid: { show: false },
     ticks: { show: true, stroke: colour("border"), width: 1, size: 4 },
     border: { show: true, stroke: colour("border"), width: 1 },
@@ -50,30 +55,11 @@ function axis(extra = {}) {
   };
 }
 
-/** Draws dashed horizontal reference lines (index 100, vendor floor) under the series. */
-function referenceLines(values) {
-  return {
-    hooks: {
-      drawAxes: [
-        (u) => {
-          const { ctx } = u;
-          const { left, width } = u.bbox;
-          ctx.save();
-          ctx.strokeStyle = colour("text3");
-          ctx.lineWidth = devicePixelRatio;
-          ctx.setLineDash([4 * devicePixelRatio, 4 * devicePixelRatio]);
-          for (const v of values) {
-            const y = Math.round(u.valToPos(v, "y", true)) + 0.5;
-            ctx.beginPath();
-            ctx.moveTo(left, y);
-            ctx.lineTo(left + width, y);
-            ctx.stroke();
-          }
-          ctx.restore();
-        },
-      ],
-    },
-  };
+function hline(ctx, u, y) {
+  ctx.beginPath();
+  ctx.moveTo(u.bbox.left, y);
+  ctx.lineTo(u.bbox.left + u.bbox.width, y);
+  ctx.stroke();
 }
 
 /** Horizontal grid only, in --grid, drawn under everything. */
@@ -83,17 +69,38 @@ function horizontalGrid() {
       drawAxes: [
         (u) => {
           const { ctx } = u;
-          const { left, width } = u.bbox;
-          const splits = u.axes[1]._splits ?? [];
           ctx.save();
           ctx.strokeStyle = colour("grid");
-          ctx.lineWidth = devicePixelRatio;
-          for (const v of splits) {
-            const y = Math.round(u.valToPos(v, "y", true)) + 0.5;
-            ctx.beginPath();
-            ctx.moveTo(left, y);
-            ctx.lineTo(left + width, y);
-            ctx.stroke();
+          ctx.lineWidth = dpr();
+          for (const v of u.axes[1]._splits ?? []) hline(ctx, u, Math.round(u.valToPos(v, "y", true)) + 0.5);
+          ctx.restore();
+        },
+      ],
+    },
+  };
+}
+
+/** Dashed reference lines ([{value, label?}]: index 100, vendor floor), label above at the right. */
+function referenceLines(lines) {
+  return {
+    hooks: {
+      drawAxes: [
+        (u) => {
+          const { ctx } = u;
+          ctx.save();
+          ctx.strokeStyle = colour("text3");
+          ctx.fillStyle = colour("text3");
+          ctx.lineWidth = dpr();
+          ctx.font = font();
+          ctx.textAlign = "right";
+          ctx.textBaseline = "bottom";
+          for (const { value, label } of lines) {
+            const y = Math.round(u.valToPos(value, "y", true)) + 0.5;
+            if (y < u.bbox.top || y > u.bbox.top + u.bbox.height) continue;
+            ctx.setLineDash([4 * dpr(), 4 * dpr()]);
+            hline(ctx, u, y);
+            ctx.setLineDash([]);
+            if (label) ctx.fillText(label, u.bbox.left + u.bbox.width - 4 * dpr(), y - 4 * dpr());
           }
           ctx.restore();
         },
@@ -102,100 +109,411 @@ function horizontalGrid() {
   };
 }
 
+// Event markers -----------------------------------------------------------------------------
+
+/** Marker kinds (HANDOVER 8b Item detail): colour, shape and the tooltip/legend label. */
+export const MARKERS = {
+  mispricing: { color: "s4", shape: "diamond", label: "Mispricing" },
+  shock: { color: "s3", shape: "square", label: "Supply shock" },
+  buyout: { color: "s2", shape: "triangle", label: "Buyout" },
+};
+const MARKER_PX = 9;
+const MARKER_ROOM = 22; // CSS px above the plot for the markers
+
+function drawShape(ctx, shape, x, y, size) {
+  const h = size / 2;
+  ctx.beginPath();
+  if (shape === "diamond") {
+    ctx.moveTo(x, y - h - 1);
+    ctx.lineTo(x + h + 1, y);
+    ctx.lineTo(x, y + h + 1);
+    ctx.lineTo(x - h - 1, y);
+  } else if (shape === "square") {
+    ctx.rect(x - h, y - h, size, size);
+  } else {
+    ctx.moveTo(x - h - 1, y - h);
+    ctx.lineTo(x + h + 1, y - h);
+    ctx.lineTo(x, y + h + 1);
+  }
+  ctx.closePath();
+  ctx.fill();
+}
+
+/** Markers [{t, kind, label}] above the plot with a dotted drop line in the marker colour. */
+function eventMarkers(markers) {
+  return {
+    hooks: {
+      draw: [
+        (u) => {
+          const { ctx } = u;
+          const { left, top, width, height } = u.bbox;
+          const y = top - (MARKER_ROOM / 2) * dpr();
+          ctx.save();
+          for (const m of markers) {
+            const kind = MARKERS[m.kind];
+            if (!kind) continue;
+            const x = Math.round(u.valToPos(m.t, "x", true)) + 0.5;
+            if (x < left || x > left + width) continue;
+            const c = colour(kind.color);
+            ctx.strokeStyle = c;
+            ctx.fillStyle = c;
+            ctx.lineWidth = dpr();
+            ctx.setLineDash([1.5 * dpr(), 3 * dpr()]);
+            ctx.beginPath();
+            ctx.moveTo(x, y + (MARKER_PX / 2 + 2) * dpr());
+            ctx.lineTo(x, top + height);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            drawShape(ctx, kind.shape, x, y, MARKER_PX * dpr());
+          }
+          ctx.restore();
+        },
+      ],
+    },
+  };
+}
+
+/** Marker legend items for legend(): same shapes, as CSS. */
+export function markerLegend(kinds = Object.keys(MARKERS)) {
+  return kinds.map((k) => ({ label: MARKERS[k].label, color: MARKERS[k].color, shape: MARKERS[k].shape }));
+}
+
+// Stale tail ---------------------------------------------------------------------------------
+
+function wrap(ctx, text, maxWidth) {
+  const lines = [];
+  let line = "";
+  for (const word of text.split(" ")) {
+    const next = line ? `${line} ${word}` : word;
+    if (line && ctx.measureText(next).width > maxWidth) {
+      lines.push(line);
+      line = word;
+    } else line = next;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+/** Shades the area after the last data point (stale data): --raised at 60 %, dashed --attention edge. */
+function staleTail({ from, label }) {
+  return {
+    hooks: {
+      draw: [
+        (u) => {
+          const { ctx } = u;
+          const { left, top, width, height } = u.bbox;
+          const x = Math.max(left, Math.round(u.valToPos(from, "x", true)) + 0.5);
+          const right = left + width;
+          if (x >= right) return;
+          ctx.save();
+          ctx.fillStyle = withAlpha("raised", 0.6);
+          ctx.fillRect(x, top, right - x, height);
+          ctx.strokeStyle = colour("attention");
+          ctx.lineWidth = dpr();
+          ctx.setLineDash([3 * dpr(), 3 * dpr()]);
+          ctx.beginPath();
+          ctx.moveTo(x, top);
+          ctx.lineTo(x, top + height);
+          ctx.stroke();
+          if (label) {
+            ctx.fillStyle = colour("attention");
+            ctx.font = font("small", 700);
+            ctx.textBaseline = "top";
+            const pad = 10 * dpr();
+            const lineH = 17 * dpr();
+            const lines = wrap(ctx, label, Math.max(110 * dpr(), right - x - 2 * pad));
+            const w = Math.max(...lines.map((l) => ctx.measureText(l).width));
+            // Right of the edge when it fits, else left of it (a short stale stretch).
+            const fits = x + pad + w <= right;
+            ctx.textAlign = fits ? "left" : "right";
+            const tx = fits ? x + pad : x - pad;
+            if (!fits) {
+              // Over the plotted lines: a --surface backing keeps the label readable.
+              ctx.fillStyle = colour("surface");
+              ctx.fillRect(tx - w - 4 * dpr(), top + pad - 3 * dpr(), w + 8 * dpr(), lines.length * lineH + 4 * dpr());
+              ctx.fillStyle = colour("attention");
+            }
+            lines.forEach((line, i) => ctx.fillText(line, tx, top + pad + i * lineH));
+          }
+          ctx.restore();
+        },
+      ],
+    },
+  };
+}
+
+// Tooltip -------------------------------------------------------------------------------------
+
 /** Tooltip in --overlay with --borderStrong; flips to the left of the crosshair near the edge. */
-function tooltip(format) {
+function tooltip(format, markers) {
   let tip;
+  const hide = () => tip && (tip.style.display = "none");
   return {
     hooks: {
       init: (u) => {
-        tip = el("div", { class: "tooltip", attrs: { role: "status" } });
+        tip = el("div", { class: "tooltip chart-tip", attrs: { role: "status" } });
         tip.style.display = "none";
         document.body.append(tip);
-        u.over.addEventListener("mouseleave", () => (tip.style.display = "none"));
+        u.over.addEventListener("mouseleave", hide);
       },
       setCursor: (u) => {
         const { idx, left, top } = u.cursor;
-        if (idx == null || left < 0) {
-          tip.style.display = "none";
-          return;
-        }
-        tip.replaceChildren(el("div", { class: "muted", text: dateTime(u.data[0][idx]) }));
+        if (idx == null || left < 0) return hide();
+        const t = u.data[0][idx];
+        tip.replaceChildren(el("div", { class: "muted", text: dateTime(t) }));
         u.series.forEach((s, i) => {
-          if (i === 0 || !s.show) return;
+          if (i === 0 || !s.show || s._hidden) return;
           const v = u.data[i][idx];
-          const sw = el("i");
-          sw.style.cssText = `display:inline-block;width:14px;height:2px;margin-right:6px;vertical-align:3px;background:${s._stroke}`;
-          tip.append(el("div", {}, sw, `${s.label}  `, el("span", { text: v == null ? "—" : format(v) })));
+          if (v == null && s._bars) return; // the other bar series holds this bar
+          const sw = el("i", { class: "swatch" });
+          sw.style.background = s._stroke;
+          const fmt = s._format ?? format;
+          tip.append(el("div", { class: "tip-row" }, sw, el("span", { text: s.label }), el("span", { class: "tip-val", text: v == null ? "—" : fmt(v) })));
         });
+        // Markers at this point: those closer to this x than to its neighbours.
+        const xs = u.data[0];
+        const lo = idx > 0 ? (xs[idx - 1] + t) / 2 : -Infinity;
+        const hi = idx < xs.length - 1 ? (xs[idx + 1] + t) / 2 : Infinity;
+        for (const m of markers) {
+          if (m.t < lo || m.t >= hi || !MARKERS[m.kind]) continue;
+          tip.append(el("div", { class: "tip-row" }, markerSwatch(MARKERS[m.kind]), el("span", { text: m.label ?? MARKERS[m.kind].label })));
+        }
         tip.style.display = "block";
         const box = u.over.getBoundingClientRect();
         const gap = 14;
         const w = tip.offsetWidth;
         let x = box.left + left + gap;
-        if (x + w > box.right) x = box.left + left - gap - w;
+        if (x + w > Math.min(box.right, window.innerWidth - 4)) x = box.left + left - gap - w; // flip left
         tip.style.left = Math.max(4, x) + "px";
-        tip.style.top = box.top + Math.max(0, top - tip.offsetHeight / 2) + "px";
+        tip.style.top = Math.max(4, box.top + top - tip.offsetHeight / 2) + "px";
       },
       destroy: () => tip?.remove(),
     },
   };
 }
 
+function markerSwatch(kind) {
+  const s = el("i", { class: "marker " + kind.shape });
+  s.style.setProperty("--marker", `var(--${kind.color})`);
+  return s;
+}
+
+// Linked charts ---------------------------------------------------------------------------
+
+const groups = new Map(); // sync key -> Set of uPlot instances
+
+/** Zooming one chart of a group zooms the others (the cursor is linked by cursor.sync). */
+function linked(key) {
+  let busy = false;
+  return {
+    hooks: {
+      init: (u) => {
+        if (!groups.has(key)) groups.set(key, new Set());
+        groups.get(key).add(u);
+      },
+      setScale: (u, scaleKey) => {
+        if (scaleKey !== "x" || busy) return;
+        const { min, max } = u.scales.x;
+        busy = true;
+        try {
+          for (const other of groups.get(key) ?? []) {
+            if (other !== u && (other.scales.x.min !== min || other.scales.x.max !== max)) other.setScale("x", { min, max });
+          }
+        } finally {
+          busy = false;
+        }
+      },
+      destroy: (u) => groups.get(key)?.delete(u),
+    },
+  };
+}
+
+// Charts --------------------------------------------------------------------------------------
+
 const WIDTHS = { primary: "--chart-line-primary", secondary: "--chart-line-secondary", tertiary: "--chart-line-tertiary" };
+const Y_AXIS_PX = 56; // fixed, so linked charts line their plots up
+
+/** y range: data plus reference lines (a vendor floor below the prices stays visible), 8 % headroom. */
+function yRange(fromZero, include) {
+  return (u, min, max) => {
+    if (min == null || max == null) return [0, 1];
+    let lo = Math.min(min, ...include);
+    let hi = Math.max(max, ...include);
+    if (fromZero) lo = Math.min(0, lo);
+    const pad = (hi - lo) * 0.08 || Math.abs(hi) * 0.1 || 1;
+    return [fromZero && lo === 0 ? 0 : lo - pad, hi + pad];
+  };
+}
+
+function barsPath() {
+  return uPlot.paths.bars({ size: [1 - num("--chart-bar-gap"), Infinity], align: 0 });
+}
 
 /**
- * lineChart(el, {x, series: [{label, color: "s1", width: "primary", fill?: true, values}],
- *                refLine?: number, height, format?: v => string})
- * `x` are unix seconds. Returns the uPlot instance with an added `reset()` (undo zoom).
+ * chart(el, {x, series, height, format, bands, refLines, markers, stale, sync, yFromZero})
+ *  x: unix seconds (shared by every series)
+ *  series: [{label, color: "s1", width: "primary", fill?, bars?, values, format?}]
+ *  bands: [{upper, lower, color}]: indices into `series`, filled at --chart-band-alpha
+ *  refLines: [{value, label?}] dashed; markers: [{t, kind: "mispricing"|"shock"|"buyout", label?}]
+ *  stale: {from, to, label}: x runs on to `to` and the part after `from` is shaded
+ *  sync: key shared by charts whose cursor and zoom move together (matching x data)
+ *  xAxis: false hides the time axis (the upper of two linked plots)
+ * Returns the uPlot instance with `reset()` (undo zoom, for the whole linked group).
  */
-export function lineChart(target, { x, series, refLine, height = 300, format = (v) => v.toLocaleString("en-US") }) {
+export function chart(target, cfg) {
+  const { series, height = 300, format = (v) => v.toLocaleString("en-US"), bands = [], markers = [], stale = null, sync = null } = cfg;
+  const refLines = cfg.refLines ?? (cfg.refLine != null ? [{ value: cfg.refLine }] : []);
+  const x = [...cfg.x];
+  const values = series.map((s) => [...s.values]);
+  if (stale && stale.to > x[x.length - 1]) {
+    x.push(stale.to); // empty point, so the x-axis reaches "now"
+    values.forEach((v) => v.push(null));
+  }
   const surface = colour("surface");
+  const hasBars = series.some((s) => s.bars);
   const opts = {
     width: Math.max(200, target.clientWidth),
     height,
     tzDate: (ts) => uPlot.tzDate(new Date(ts * 1000), TZ),
     legend: { show: false },
+    padding: [markers.length ? MARKER_ROOM : 10, 12, 0, 0],
     cursor: {
       x: true,
       y: true,
       drag: { x: true, y: false, setScale: true },
       points: {
-        size: num("--chart-marker-dot"),
+        size: (u, i) => (u.series[i]._bars ? 0 : num("--chart-marker-dot")),
         width: 2,
         stroke: () => surface,
         fill: (u, i) => u.series[i]._stroke,
       },
+      ...(sync ? { sync: { key: sync, setSeries: false, scales: ["x", null] } } : {}),
     },
-    scales: { x: { time: true } },
-    axes: [axis({ values: timeTicks }), axis({ size: 56, values: (u, vals) => vals.map((v) => format(v)) })],
+    scales: {
+      x: { time: true },
+      y: { range: yRange(cfg.yFromZero || hasBars, refLines.map((r) => r.value)) },
+    },
+    axes: [axis({ values: timeTicks, show: cfg.xAxis !== false, size: cfg.xAxis === false ? 0 : 50 }), axis({ size: Y_AXIS_PX, values: (u, vals) => vals.map((v) => format(v)) })],
     series: [
       {},
       ...series.map((s) => ({
         label: s.label,
         stroke: colour(s.color),
-        width: num(WIDTHS[s.width ?? "secondary"]),
-        fill: s.fill ? withAlpha(s.color, num("--chart-area-alpha")) : undefined,
+        width: s.bars ? 0 : num(WIDTHS[s.width ?? "secondary"]),
+        fill: s.bars ? colour(s.color) : s.fill ? withAlpha(s.color, num("--chart-area-alpha")) : undefined,
+        paths: s.bars ? barsPath() : undefined,
         points: { show: false },
+        _bars: !!s.bars,
+        _format: s.format,
       })),
     ],
-    plugins: [horizontalGrid(), ...(refLine != null ? [referenceLines([refLine])] : []), tooltip(format)],
+    bands: bands.map((b) => ({ series: [b.upper + 1, b.lower + 1], fill: withAlpha(b.color ?? series[b.lower].color, num("--chart-band-alpha")) })),
+    plugins: [
+      horizontalGrid(),
+      ...(refLines.length ? [referenceLines(refLines)] : []),
+      ...(markers.length ? [eventMarkers(markers)] : []),
+      ...(stale ? [staleTail(stale)] : []),
+      ...(sync ? [linked(sync)] : []),
+      tooltip(format, markers),
+    ],
   };
-  const data = [x, ...series.map((s) => s.values)];
-  const chart = new uPlot(opts, data, target);
-  chart.reset = () => chart.setScale("x", { min: x[0], max: x[x.length - 1] });
-  new ResizeObserver(() => chart.setSize({ width: Math.max(200, target.clientWidth), height })).observe(target);
-  return chart;
+  const u = new uPlot(opts, [x, ...values], target);
+  for (let i = 1; i < u.series.length; i++) Object.assign(u.series[i], { _bars: opts.series[i]._bars, _format: opts.series[i]._format });
+  u.reset = () => u.setScale("x", { min: x[0], max: x[x.length - 1] }); // linked() passes it on
+  target.uplot = u; // for views that find a chart by its element (and for checks in --dev)
+  new ResizeObserver(() => u.setSize({ width: Math.max(200, target.clientWidth), height })).observe(target);
+  return u;
 }
 
-/** Legend row above a plot: line swatch + label in --text2 (not uPlot's legend). */
-export function legend(series) {
+/** A line chart (kept for the existing callers): chart() with line series. */
+export const lineChart = chart;
+
+/**
+ * barChart(el, {x, values, label, color: "s6", highlight?: bool[], highlightColor: "s3",
+ *               highlightLabel, ...chart options}) — bars with the 28 % gap; highlighted
+ * bars (supply shocks) in their own colour.
+ */
+export function barChart(target, { x, values, label, color = "s6", highlight = null, highlightColor = "s3", highlightLabel = label, format, ...rest }) {
+  const series = [{ label, color, bars: true, values: highlight ? values.map((v, i) => (highlight[i] ? null : v)) : values }];
+  if (highlight) series.push({ label: highlightLabel, color: highlightColor, bars: true, values: values.map((v, i) => (highlight[i] ? v : null)) });
+  return chart(target, { x, series, format, yFromZero: true, ...rest });
+}
+
+// Card, legend --------------------------------------------------------------------------------
+
+/** Legend row above a plot: line swatch (or marker shape) + label in --text2 (not uPlot's legend). */
+export function legend(items) {
   return el(
     "div",
     { class: "legend" },
-    series.map((s) => {
-      const swatch = el("i");
-      swatch.style.background = colour(s.color);
+    items.map((s) => {
+      if (s.shape) return el("span", {}, markerSwatch(s), s.label);
+      const swatch = el("i", { class: s.dashed ? "dashed" : s.bars ? "bar" : "" });
+      swatch.style.setProperty("--swatch", `var(--${s.color})`);
       return el("span", {}, swatch, s.label);
     }),
+  );
+}
+
+/**
+ * chartCard({title, sub, legend: items, height, extraHead?, build(plotEl) -> uPlot | uPlot[]})
+ * A card with title, subtitle, legend and a reset-zoom button in the header. `build` runs
+ * once the card is in the page (charts need their width). Returns {node, charts}.
+ */
+export function chartCard({ title, sub, legend: items = [], build, plots = 1, className = "" }) {
+  const holders = Array.from({ length: plots }, () => el("div", { class: "chart" }));
+  const result = { node: null, charts: [] };
+  const resetBtn = el("button", { class: "btn icon slim-icon", attrs: { title: "Reset zoom", "aria-label": "Reset zoom" }, on: { click: () => result.charts[0]?.reset() } }, icon("reset", 15));
+  const head = el(
+    "div",
+    { class: "card-head" },
+    el("div", {}, el("h2", { class: "card-title", text: title }), sub ? el("div", { class: "sub", text: sub }) : null),
+    el("div", { class: "card-tools" }, items.length ? legend(items) : null, resetBtn),
+  );
+  result.node = el("section", { class: "card chart-card " + className }, head, holders);
+  result.mount = () => {
+    const made = build(...holders);
+    result.charts = Array.isArray(made) ? made : [made];
+    return result;
+  };
+  return result;
+}
+
+// Sparkline and range bar (SVG, for table cells) -----------------------------------------
+
+/** 96×26 sparkline (Movers): line in --rise/--fall (--text3 when flat) with an end dot. */
+export function sparkline(values, direction = "flat", { width = 96, height = 26 } = {}) {
+  const pts = values.filter((v) => v != null && Number.isFinite(v));
+  const node = svg("svg", { class: "sparkline " + direction, width, height, viewBox: `0 0 ${width} ${height}`, "aria-hidden": "true" });
+  if (pts.length < 2) return node;
+  const lo = Math.min(...pts);
+  const hi = Math.max(...pts);
+  const pad = 2.5;
+  const xAt = (i) => (i / (pts.length - 1)) * width;
+  const yAt = (v) => (hi === lo ? height / 2 : pad + (1 - (v - lo) / (hi - lo)) * (height - 2 * pad));
+  const d = pts.map((v, i) => `${i ? "L" : "M"}${xAt(i).toFixed(1)} ${yAt(v).toFixed(1)}`).join(" ");
+  node.append(svg("path", { d }), svg("circle", { cx: width, cy: yAt(pts[pts.length - 1]).toFixed(1), r: 2.2 }));
+  return node;
+}
+
+/**
+ * 140 px range bar (Movers "Where it sits"): typical range [low, high] in --borderStrong,
+ * the usual price as a --text2 tick, the current price as a rose (--s4) diamond.
+ */
+export function rangeBar({ low, high, usual, current }, { width = 140, height = 16 } = {}) {
+  const lo = Math.min(low, current, usual);
+  const hi = Math.max(high, current, usual);
+  const span = hi - lo || 1;
+  const pad = 6;
+  const xAt = (v) => pad + ((v - lo) / span) * (width - 2 * pad);
+  const mid = height / 2;
+  const cx = xAt(current);
+  return svg(
+    "svg",
+    { class: "rangebar", width, height, viewBox: `0 0 ${width} ${height}`, "aria-hidden": "true" },
+    svg("line", { class: "track", x1: pad, x2: width - pad, y1: mid, y2: mid }),
+    svg("line", { class: "typical", x1: xAt(low), x2: xAt(high), y1: mid, y2: mid }),
+    svg("line", { class: "usual", x1: xAt(usual), x2: xAt(usual), y1: mid - 5, y2: mid + 5 }),
+    svg("path", { class: "current", d: `M${cx} ${mid - 5} L${cx + 5} ${mid} L${cx} ${mid + 5} L${cx - 5} ${mid} Z` }),
   );
 }

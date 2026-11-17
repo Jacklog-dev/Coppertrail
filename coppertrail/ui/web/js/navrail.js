@@ -20,11 +20,16 @@ export function render(container, { current, onSelect, onDataFolder }) {
   const buttons = VIEWS.map((v) =>
     el(
       "button",
-      { class: "nav", attrs: { "aria-current": v.id === current ? "page" : false }, on: { click: () => onSelect(v.id) } },
+      { class: "nav", attrs: { "aria-current": v.id === current ? "page" : false, "aria-label": v.label, "data-tip": v.label }, on: { click: () => onSelect(v.id) } },
       icon(v.icon, 18),
-      el("span", { text: v.label }),
+      el("span", { class: "nav-label", text: v.label }),
     ),
   );
-  const folder = el("button", { class: "nav small", on: { click: onDataFolder } }, icon("folder", 18), el("span", { text: "Data folder" }));
+  const folder = el(
+    "button",
+    { class: "nav small", attrs: { "aria-label": "Data folder", "data-tip": "Data folder" }, on: { click: onDataFolder } },
+    icon("folder", 18),
+    el("span", { class: "nav-label", text: "Data folder" }),
+  );
   replace(container, brand, buttons, el("div", { class: "spacer" }), folder);
 }

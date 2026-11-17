@@ -21,7 +21,7 @@ const MIN_SALES_PRESETS = [0, 10, 50, 200, 1000];
 const SEARCH_DELAY_MS = 250;
 
 const ui = {
-  open: null, // "groups" | "class" | "date" | "sales"
+  open: null, // "groups" | "class" | "date" | "sales" | "more"
   groupSearch: "",
   month: null, // "YYYY-MM" shown in the calendar
   pending: null, // first calendar click
@@ -72,8 +72,18 @@ function toggle(kind, anchor) {
   showPopover(anchor);
 }
 
+/**
+ * The element a popover hangs from. In a compact window (<= 1440 px) Class, date and Min
+ * sales are folded into "More" and hidden, so their popovers open under "More" instead.
+ */
+function anchorFor(kind) {
+  const own = ctx.container.querySelector(`[data-anchor="${kind}"]`);
+  if (own && own.getClientRects().length) return own;
+  return ctx.container.querySelector('[data-anchor="more"]');
+}
+
 function showPopover(anchor) {
-  const build = { groups: groupsPopover, class: classMenu, date: datePopover, sales: salesPopover }[ui.open];
+  const build = { groups: groupsPopover, class: classMenu, date: datePopover, sales: salesPopover, more: morePopover }[ui.open];
   if (!build || !anchor) return;
   const [content, className] = build();
   openPopover(anchor, content, { className, onClose: () => (ui.open = null) });
@@ -112,7 +122,7 @@ function groupsPopover() {
     on: {
       input: (e) => {
         ui.groupSearch = e.target.value;
-        showPopover(ctx.container.querySelector('[data-anchor="groups"]'));
+        showPopover(anchorFor("groups"));
         refocus("group-search");
       },
     },
@@ -202,12 +212,12 @@ function datePopover() {
       pending: ui.pending,
       onMonth: (ym) => {
         ui.month = ym;
-        showPopover(ctx.container.querySelector('[data-anchor="date"]'));
+        showPopover(anchorFor("date"));
       },
       onDay: (day) => {
         if (!ui.pending) {
           ui.pending = day;
-          showPopover(ctx.container.querySelector('[data-anchor="date"]'));
+          showPopover(anchorFor("date"));
           return;
         }
         const [lo, hi] = [ui.pending, day].sort();
@@ -245,6 +255,54 @@ function salesPopover() {
   return [content, "popover pop-sales"];
 }
 
+// Controls that fold into "More" in a compact window -------------------------------------
+
+const FOLDED = ["Class", "Date range", "Min sales/day"]; // labels as in state.active
+
+function classCtl(on) {
+  return el(
+    "button",
+    { class: "ctl" + on("Class"), attrs: { "data-anchor": "class", "aria-haspopup": "menu" }, on: { click: () => toggle("class", anchorFor("class")) } },
+    el("span", { class: "label", text: "Class" }),
+    el("span", { class: "value", text: ctx.state.filters.item_class || "All classes" }),
+    el("span", { class: "chev" }, icon("chevron", 14)),
+  );
+}
+
+function dateCtl(on) {
+  return el(
+    "button",
+    { class: "ctl" + on("Date range"), attrs: { "data-anchor": "date", "aria-haspopup": "dialog" }, on: { click: () => toggle("date", anchorFor("date")) } },
+    icon("calendar", 16),
+    el("span", { class: "value", text: ctx.state.window.label }),
+  );
+}
+
+function salesCtl(on, focusKey) {
+  const input = el("input", {
+    attrs: { type: "number", min: 0, step: 10, value: ctx.state.filters.min_sales, "data-focus": focusKey, "aria-label": "Minimum sales per day" },
+    on: {
+      change: (e) => change({ min_sales: Math.max(0, parseInt(e.target.value, 10) || 0) }),
+      click: (e) => e.stopPropagation(),
+    },
+  });
+  return el(
+    "div",
+    { class: "ctl minsales" + on("Min sales/day"), attrs: { "data-anchor": "sales", role: "group" }, on: { click: () => toggle("sales", anchorFor("sales")) } },
+    el("span", { class: "label", text: "Min sales/day" }),
+    input,
+  );
+}
+
+/** "More" (compact window): the three folded controls; each opens its own popover here. */
+function morePopover() {
+  const active = new Set(ctx.state.active);
+  const on = (name) => (active.has(name) ? " active" : "");
+  const content = el("div", {}, classCtl(on), dateCtl(on), salesCtl(on, "min-sales-more"));
+  content.style.display = "contents";
+  return [content, "popover pop-more"];
+}
+
 // Focus keeping ---------------------------------------------------------------------
 
 function refocus(key, caret) {
@@ -276,13 +334,6 @@ export function render(container, state, onState) {
   const pencil = el("button", { class: "ctl", attrs: { "aria-label": "Edit item groups", title: "Edit item groups" }, on: { click: () => editGroups(false) } }, icon("edit", 16));
   pencil.style.padding = "0 8px";
 
-  const cls = el(
-    "button",
-    { class: "ctl" + on("Class"), attrs: { "data-anchor": "class", "aria-haspopup": "menu" }, on: { click: (e) => toggle("class", e.currentTarget) } },
-    el("span", { class: "label", text: "Class" }),
-    el("span", { class: "value", text: f.item_class || "All classes" }),
-    el("span", { class: "chev" }, icon("chevron", 14)),
-  );
 
   const searchInput = el("input", {
     attrs: { type: "search", placeholder: "Search items", value: ui.searchText ?? f.search, "data-focus": "search", "aria-label": "Search items" },
@@ -301,25 +352,17 @@ export function render(container, state, onState) {
   });
   const search = el("label", { class: "input search" + on("Search") }, icon("search", 16), searchInput);
 
-  const dateBtn = el(
+  const folded = FOLDED.filter((name) => active.has(name)).length;
+  const more = el(
     "button",
-    { class: "ctl" + on("Date range"), attrs: { "data-anchor": "date", "aria-haspopup": "dialog" }, on: { click: (e) => toggle("date", e.currentTarget) } },
-    icon("calendar", 16),
-    el("span", { class: "value", text: state.window.label }),
-  );
-
-  const salesInput = el("input", {
-    attrs: { type: "number", min: 0, step: 10, value: f.min_sales, "data-focus": "min-sales", "aria-label": "Minimum sales per day" },
-    on: {
-      change: (e) => change({ min_sales: Math.max(0, parseInt(e.target.value, 10) || 0) }),
-      click: (e) => e.stopPropagation(),
+    {
+      class: "ctl more" + (folded ? " active" : ""),
+      attrs: { "data-anchor": "more", "aria-haspopup": "dialog", "aria-label": folded ? `More filters, ${folded} active` : "More filters" },
+      on: { click: (e) => toggle("more", e.currentTarget) },
     },
-  });
-  const sales = el(
-    "div",
-    { class: "ctl minsales" + on("Min sales/day"), attrs: { "data-anchor": "sales", role: "group" }, on: { click: (e) => toggle("sales", e.currentTarget) } },
-    el("span", { class: "label", text: "Min sales/day" }),
-    salesInput,
+    icon("sliders", 15),
+    el("span", { text: "More" }),
+    folded ? el("span", { class: "badge", text: String(folded) }) : null,
   );
 
   const activeState = state.active.length
@@ -334,14 +377,15 @@ export function render(container, state, onState) {
   replace(
     container,
     el("div", { class: "group-pair" }, groups, pencil),
-    cls,
+    el("div", { class: "fold" }, classCtl(on)),
     search,
-    el("div", { class: "group-pair" }, rangeSeg(), dateBtn),
-    sales,
+    el("div", { class: "group-pair" }, rangeSeg(), el("div", { class: "fold" }, dateCtl(on))),
+    el("div", { class: "fold" }, salesCtl(on, "min-sales")),
+    more,
     el("div", { class: "spacer" }),
     activeState,
   );
 
-  if (ui.open) showPopover(container.querySelector(`[data-anchor="${ui.open}"]`));
+  if (ui.open) showPopover(anchorFor(ui.open));
   if (focused) refocus(focused, caret);
 }

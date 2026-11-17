@@ -53,3 +53,23 @@
 .pop-sales { width: 280px; display: flex; flex-direction: column; gap: var(--space-3); }
 .pop-sales .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .pop-sales .note { font-size: var(--type-small-size); color: var(--text3); }
+
+/* "More" (HANDOVER 8b "Resizing", Overview1280 mock-up): at <= 1440 px Class, the date
+   button and Min sales/day fold into it; its badge counts how many of them are active. */
+.filterbar .fold { display: contents; }
+.filterbar .more { display: none; }
+.ctl.more svg { color: inherit; }
+.ctl.more.active { color: var(--accent); }
+.ctl .badge {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px;
+  border: 1px solid var(--accent); border-radius: var(--radius-chip); color: var(--accent); font-size: var(--type-small-size);
+}
+@media (max-width: 1440px) {
+  .filterbar .fold { display: none; }
+  .filterbar .more { display: inline-flex; flex: none; }
+  .filterbar .search { width: 180px; }
+}
+.pop-more { width: 280px; display: flex; flex-direction: column; gap: var(--space-2); }
+.pop-more .ctl { width: 100%; }
+.pop-more .ctl .value { flex: 1; text-align: left; }
+.pop-more .minsales input { flex: 1; width: auto; }
