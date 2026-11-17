@@ -269,7 +269,8 @@ def index_chart(result: PatternResult | None, lo: date, hi: date) -> dict:
     for group in ("scarce", "farmable"):
         out[group] = nums(wide[group]) if group in wide.columns else None
     if out["scarce"] is not None and out["farmable"] is not None:
-        out["divergence"] = nums(wide["scarce"] - wide["farmable"])
+        div = wide["scarce"] - wide["farmable"]
+        out["divergence"] = [fmt.points(v) if finite(v) else None for v in div]
     else:
         missing = "scarce" if out["scarce"] is None else "farmable"
         out["note"] = f"No {missing} goods in this filter, so no divergence."
@@ -295,7 +296,7 @@ def rhythm_chart(result: PatternResult | None, lo: date, hi: date, gap: dict | N
         v = values.dropna()
         if v.empty:
             continue
-        for hour in (int(v.idxmin()), int(v.idxmax())):
+        for hour in dict.fromkeys((int(v.idxmin()), int(v.idxmax()))):  # one label if flat
             labels.append(
                 {
                     "series": key,
@@ -353,7 +354,7 @@ def supply_chart(
         return out
     g = hourly.groupby("hour").agg(total=("quantity", "sum"), items=("item_id", "nunique"))
     typical = g["items"].median()
-    g.loc[g["items"] < COVERAGE * typical, "total"] = np.nan
+    g["total"] = g["total"].astype("float64").where(g["items"] >= COVERAGE * typical)
     out["x"] = [unix(t) for t in g.index]
     out["values"] = nums(g["total"], 0)
     kept = g["total"].dropna()
@@ -446,6 +447,7 @@ def item_list(
     details: dict[int, dict],
     sort: str,
     limit: int,
+    pin: int | None = None,
 ) -> dict:
     sort = sort if sort in SORTS else "sales"
     ch = changes.to_dict()
@@ -457,6 +459,9 @@ def item_list(
     }
     rows = sorted(items, key=keys[sort])
     more = len(rows) - limit
+    shown = rows[:limit]
+    # The item on screen stays listed (and selected) although it sorts beyond the limit.
+    shown += [i for i in rows[limit:] if i.item_id == pin]
     return {
         "sort": sort,
         "sorts": [{"key": k, "label": v} for k, v in SORTS.items()],
@@ -470,7 +475,7 @@ def item_list(
                 "price": coin(i.min_buyout),
                 "change": fmt.change(ch.get(i.item_id)),
             }
-            for i in rows[:limit]
+            for i in shown
         ],
     }
 

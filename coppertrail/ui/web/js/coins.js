@@ -22,6 +22,16 @@ export function change(text, direction) {
 }
 
 /**
+ * Count ticks and chart tooltips: 1.6 M, 450 k, 9,800. A chart-axis formatter like
+ * axisCoins (tick values are computed here, not in the bridge).
+ */
+export function axisCount(v) {
+  if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(2).replace(/\.?0+$/, "") + " M";
+  if (Math.abs(v) >= 1e4) return Math.round(v / 1e3) + " k";
+  return Math.round(v).toLocaleString("en-US");
+}
+
+/**
  * Axis labels in letters: 8g, 1g 50s, 80s, 3,101g (same rules as format.coins_text).
  * The one formatter that lives in JS, because chart ticks are computed here.
  */

@@ -2,7 +2,7 @@
 // Data: bridge.overview() (tiles and charts) and bridge.overview_events() ("What changed",
 // slower, filled in when it arrives).
 import { call } from "./api.js";
-import { axisCoins, change, coin } from "./coins.js";
+import { axisCoins, axisCount, change, coin } from "./coins.js";
 import { chart, chartCard, MARKERS } from "./charts.js";
 import { el, replace } from "./dom.js";
 import * as states from "./states.js";
@@ -10,10 +10,7 @@ import { noteCard, staleTail, tile, viewHead, viewHost } from "./viewkit.js";
 
 const host = viewHost("overview");
 
-const index1 = (v) => v.toFixed(1);
-const points = (v) => (v > 0 ? "+" : v < 0 ? "−" : "± ") + Math.abs(v).toFixed(1);
-/** Axis and tooltip counts: 1.6 M, 450 k, 980 (chart formatting, like axisCoins). */
-const units = (v) => (Math.abs(v) >= 1e6 ? (v / 1e6).toFixed(2).replace(/\.?0+$/, "") + " M" : Math.abs(v) >= 1e4 ? Math.round(v / 1e3) + " k" : Math.round(v).toLocaleString("en-US"));
+const index1 = (v) => v.toFixed(1); // index tooltip values (chart formatting)
 
 /** render(container, state, banner, nav) */
 export function render(container, state, banner, nav) {
@@ -23,7 +20,13 @@ export function render(container, state, banner, nav) {
     const data = await call("overview");
     if (!isCurrent()) return;
     build(root, data, state, nav);
-    const events = await call("overview_events");
+    // The slow part fails on its own: only "What changed" shows the error.
+    let events;
+    try {
+      events = await call("overview_events");
+    } catch (err) {
+      events = { rows: [], note: `Could not look for events: ${err}` };
+    }
     if (!isCurrent()) return;
     fillChanged(root.querySelector(".a-changed"), events, nav);
   });
@@ -57,7 +60,7 @@ function build(root, data, state, nav) {
           height: 300,
           format: (v) => Math.round(v).toString(),
           tipDate: "day",
-          tipExtra: ix.divergence ? [{ label: "Divergence", values: ix.divergence, color: "text3", format: points }] : [],
+          tipExtra: ix.divergence ? [{ label: "Divergence", values: ix.divergence, color: "text3", format: (t) => t }] : [],
           stale,
         }),
     });
@@ -105,7 +108,7 @@ function build(root, data, state, nav) {
   const groupsNode = rhythmGroups(rh.groups);
 
   // Total listed supply, total gold listed
-  const supplyNode = areaCard(cards, "Total listed supply", data.supply, { label: "Listed", color: "s2", format: units, value: data.supply?.value, stale, tipDate: null });
+  const supplyNode = areaCard(cards, "Total listed supply", data.supply, { label: "Listed", color: "s2", format: axisCount, value: data.supply?.value, stale, tipDate: null });
   const goldNode = areaCard(cards, "Total gold listed", data.gold, { label: "Gold listed", color: "s1", format: axisCoins, value: data.gold?.value ? coin(data.gold.value) : null, stale, tipDate: "day" });
 
   // What changed (filled by overview_events)
@@ -168,7 +171,7 @@ function fillChanged(card, data, nav) {
   card.querySelector(".sub").textContent = data.sub || "Last 7 days";
   const box = card.querySelector(".changed-rows");
   if (!data.rows?.length) {
-    replace(box, el("p", { class: "card-note", text: data.note ?? "Nothing unusual in the last 7 days." }));
+    replace(box, el("p", { class: "card-note", text: data.note ?? "Nothing unusual in the last 7 days." }), data.failed ? el("p", { class: "card-note fall", text: data.failed }) : null);
     return;
   }
   replace(
@@ -189,5 +192,6 @@ function fillChanged(card, data, nav) {
         ),
       );
     }),
+    data.failed ? el("p", { class: "card-note fall", text: data.failed }) : null,
   );
 }

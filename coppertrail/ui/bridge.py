@@ -37,6 +37,7 @@ from coppertrail.query.settings import Filters, load_settings, save_settings
 from coppertrail.ui import format as fmt
 from coppertrail.ui import viewdata as vd
 from coppertrail.ui.pull import COMMAND, NO_GIT, NOT_A_CLONE, PullResult, can_pull, run_pull
+from coppertrail.ui.viewdata import coin, plural
 
 AHLEDGER_URL = "https://ahledger.com"
 STALE_AFTER_DAYS = 2
@@ -46,16 +47,6 @@ SEARCH_ROWS = 50
 LIST_ROWS = 500  # Item detail list panel
 WEEK_READ_DAYS = 9  # hourly read for the "7 d" figures: a week plus partial edge days
 EVENT_JOBS = ("mispricings", "supply_shocks", "buyouts")
-
-
-def plural(n: int, word: str) -> str:
-    return f"{fmt.thousands(n)} {word}{'' if n == 1 else 's'}"
-
-
-def coin(copper: int | None) -> dict | None:
-    if copper is None:
-        return None
-    return {"parts": [[n, u] for n, u in fmt.coin_parts(copper)], "text": fmt.coins_text(copper)}
 
 
 def item_row(item: Item) -> dict:
@@ -329,6 +320,7 @@ class Bridge:
         self.items: list[Item] = items
         self.status: ArchiveStatus = status
         self.load_error = error
+        self.memo.clear()  # a pull may add rows without a newer as_of
 
     @property
     def filters(self) -> Filters:
@@ -570,18 +562,6 @@ class Bridge:
                 hi=hi,
             )
 
-    def _pattern(self, key: str, ctx: Context, inp: ViewInputs) -> PatternResult:
-        memo_key = (
-            "pattern",
-            key,
-            str(ctx.data_dir),
-            inp.status.as_of,
-            ctx.start,
-            ctx.end,
-            _ids_key(ctx.item_ids),
-        )
-        return self.memo.get(memo_key, lambda: run_pattern(key, ctx))
-
     def _week(self, inp: ViewInputs) -> pd.DataFrame:
         """The daily table over the archive's last days, all items (every "7 d" figure)."""
 
@@ -634,7 +614,7 @@ class Bridge:
 
         inflation: PatternResult | None = None
         try:
-            inflation = self._pattern("inflation", ctx, inp)
+            inflation = run_pattern("inflation", ctx)
         except Exception as exc:  # noqa: BLE001
             out["index"] = {"sub": vd.range_sub(lo, hi), "note": _failed(exc)}
         else:
@@ -656,7 +636,7 @@ class Bridge:
         return out
 
     def _rhythm(self, inp: ViewInputs, ctx: Context) -> dict:
-        result = self._pattern("daily_rhythm", ctx, inp)
+        result = run_pattern("daily_rhythm", ctx)
         gap = None
         if not result.ready:
             have = result.days_used
@@ -680,19 +660,29 @@ class Bridge:
             return {"sub": "", "rows": [], "note": "No data yet."}
         lo = max(last - timedelta(days=vd.WEEK - 1), inp.status.first_day or last)
         ctx = Context(inp.data_dir, inp.ids, lo, last)
-        results = [self._pattern(k, ctx, inp) for k in EVENT_JOBS]
+        results, failed = [], []
+        for key in EVENT_JOBS:
+            try:
+                results.append(run_pattern(key, ctx))
+            except Exception:  # noqa: BLE001 - the other jobs' events still show
+                failed.append(key)
         names = {i.item_id: i.name for i in inp.items}
         sales = {i.item_id: i.sales_per_day for i in inp.items}
-        return vd.what_changed(results, names, sales, lo, last)
+        out = vd.what_changed(results, names, sales, lo, last)
+        if failed:
+            out["failed"] = f"Could not compute: {', '.join(failed)}"
+        return out
 
-    def item_list(self, sort: str = "sales") -> dict:
+    def item_list(self, sort: str = "sales", pin: int | None = None) -> dict:
+        """The filtered items, sorted; `pin` (the shown item) is kept even beyond the limit."""
         inp = self._inputs()
+        pin = None if pin is None else int(pin)
 
         def compute() -> dict:
             changes = vd.week_change(self._week(inp))
-            return vd.item_list(inp.shown, changes, self._details(inp), sort, LIST_ROWS)
+            return vd.item_list(inp.shown, changes, self._details(inp), sort, LIST_ROWS, pin)
 
-        return self.memo.get(("list", sort, *inp.key), compute)
+        return self.memo.get(("list", sort, pin, *inp.key), compute)
 
     def item_detail(self, item_id: int) -> dict:
         inp = self._inputs()

@@ -3,7 +3,7 @@
 // The list and the detail load separately, so picking another item keeps the list (and its
 // scroll position and search) in place.
 import { call } from "./api.js";
-import { axisCoins, change, coin } from "./coins.js";
+import { axisCoins, axisCount, change, coin } from "./coins.js";
 import { barChart, chart, chartCard, MARKERS, markerLegend } from "./charts.js";
 import { el, replace } from "./dom.js";
 import { icon } from "./icons.js";
@@ -23,10 +23,10 @@ const view = {
   search: "",
   rows: [],
   truncated: false,
+  pinned: null, // item last asked to be pinned to the list
   selected: null,
 };
 
-const units = (v) => (Math.abs(v) >= 1e6 ? (v / 1e6).toFixed(2).replace(/\.?0+$/, "") + " M" : Math.abs(v) >= 1e4 ? Math.round(v / 1e3) + " k" : Math.round(v).toLocaleString("en-US"));
 
 /** render(container, state, banner, nav) */
 export function render(container, state, banner, nav) {
@@ -74,7 +74,7 @@ async function loadList(state, nav, base) {
   const seq = ++view.listSeq;
   view.root.querySelector(".item-list").classList.add("refreshing");
   try {
-    const list = await call("item_list", view.sort);
+    const list = await call("item_list", view.sort, nav.item ?? null); // keeps the shown item listed
     if (seq !== view.listSeq || !view.root.isConnected) return;
     view.rows = list.rows;
     view.truncated = !!list.more;
@@ -158,11 +158,16 @@ function showDetail(state, nav, base) {
     replace(view.main, viewHead("Item detail", state.items.sub), el("p", { class: "card-note", text: "No items in this filter." }));
     return;
   }
-  // The item from the frame (a click here, a link from another view) when this list has it;
-  // a long list shows only its first rows, so a linked item may sit beyond them.
+  // The item from the frame (a click here, a link from another view) when this list has it.
+  // A long list shows only its first rows: ask once more with that item pinned to it.
   const wanted = nav.item;
   const listed = view.rows.some((r) => r.id === wanted);
-  view.selected = wanted != null && (listed || view.truncated) ? wanted : view.rows[0].id;
+  if (wanted != null && !listed && view.truncated && view.pinned !== wanted) {
+    view.pinned = wanted;
+    loadList(state, nav, base);
+    return;
+  }
+  view.selected = listed ? wanted : view.rows[0].id;
   markSelected();
   const key = base + "|" + view.selected;
   if (view.detailKey === key) return;
@@ -272,7 +277,7 @@ function priceCard(c, stale, cards) {
         highlightLabel: "Listed (supply shock)",
         sync: "item-detail",
         height: 130,
-        format: units,
+        format: axisCount,
         stale,
       }),
     ],

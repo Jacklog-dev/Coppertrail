@@ -293,3 +293,46 @@ def test_view_methods_compute_without_the_lock(market, config_dir, monkeypatch):
 
 def test_unlocked_methods_are_exposed():
     assert set(Bridge.UNLOCKED) <= set(Bridge.EXPOSED)
+
+
+def test_item_list_keeps_the_pinned_item(market, config_dir):
+    items = Bridge(market, now=NOW).items
+    out = vd.item_list(items, pd.Series(dtype="float64"), {}, "name", 2, pin=8170)
+    assert [r["name"] for r in out["rows"]] == [
+        "Accurate Scope",
+        "Black Lotus",
+        "Rugged Leather",
+    ]
+    assert out["more"] == "first 2 shown"
+
+
+def test_one_failing_event_job_keeps_the_others(market, config_dir, monkeypatch):
+    from coppertrail.ui import bridge as bridge_mod
+
+    real = bridge_mod.run_pattern
+
+    def flaky(key, ctx):
+        if key == "buyouts":
+            raise RuntimeError("boom")
+        return real(key, ctx)
+
+    monkeypatch.setattr(bridge_mod, "run_pattern", flaky)
+    e = Bridge(market, now=NOW).overview_events()
+    assert e["failed"] == "Could not compute: buyouts"
+
+
+def test_reload_clears_the_cache(market, config_dir):
+    b = Bridge(market, now=NOW)
+    first = b.overview()
+    b._load()
+    assert b.overview() is not first
+
+
+def test_flat_rhythm_gets_one_label_per_series():
+    md = pd.DataFrame(
+        {"hour": range(24), "min_idx": 100.0, "p25_idx": 100.0, "quantity_idx": 100.0}
+    )
+    out = vd.rhythm_chart(
+        PatternResult(charts={"market_day": md}), date(2026, 11, 10), date(2026, 11, 16), None
+    )
+    assert len(out["labels"]) == 2
