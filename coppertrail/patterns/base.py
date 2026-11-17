@@ -19,7 +19,6 @@ from pathlib import Path
 
 import pandas as pd
 
-from coppertrail.patterns import tables
 from coppertrail.query import series
 from coppertrail.query.catalog import archive_status
 
@@ -79,7 +78,7 @@ class Context:
     @cached_property
     def details(self) -> pd.DataFrame:
         """subclass, required_level, vendor_price per selected item (items with details only)."""
-        d = tables.item_details(self.data_dir)
+        d = series.item_details(self.data_dir)
         if self.item_ids is not None:
             d = d[d["item_id"].isin(self.item_ids)]
         return d.reset_index(drop=True)
@@ -87,12 +86,12 @@ class Context:
     @cached_property
     def recipes(self) -> pd.DataFrame:
         """All recipes (one row per reagent), not limited by the item selection."""
-        return tables.recipes(self.data_dir)
+        return series.recipes(self.data_dir)
 
     @cached_property
     def builds(self) -> pd.DataFrame:
         """Builds published inside the day range."""
-        return tables.builds(self.data_dir, self.start, self.end)
+        return series.builds(self.data_dir, self.start, self.end)
 
     def hourly_of(self, item_ids: Iterable[int]) -> pd.DataFrame:
         """Hourly rows for these items in the range, even outside the selection.

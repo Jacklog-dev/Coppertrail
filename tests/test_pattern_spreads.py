@@ -7,8 +7,7 @@ from pattern_fixtures import hourly_frame, items_frame, make_ctx, noise
 import coppertrail.patterns.spreads  # noqa: F401 - registers the job
 from coppertrail.patterns.base import run
 from coppertrail.patterns.spreads import KEY, WORTH, processing_spreads
-from coppertrail.patterns.tables import RECIPE_COLS
-from coppertrail.query.series import SNAPSHOT_COLS
+from coppertrail.query.series import RECIPE_COLS, SNAPSHOT_COLS
 
 START = "2026-11-08 23:00"  # 00:00 CET on 9 Nov
 N = 5 * 24

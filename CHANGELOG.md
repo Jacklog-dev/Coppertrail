@@ -10,6 +10,8 @@
 - GUI: filter bar (groups, class, search, date range, min sales) and item-group editor
 - GUI: empty, stale, no-match, loading, pull-failed and too-little-history states; compact and ultrawide layouts; chart building blocks
 - Query layer for hourly, per-scan, snapshot, economy and item data
-- Pattern jobs: daily rhythm, mispricings, supply shocks, buyouts, progression wave, inflation index
 - Pattern CLI and baseline check against the handover results
 - Research note on importing own in-game scans
+- Pattern jobs (all 12): daily rhythm, weekday and raid reset, mispricings, supply shocks, buyouts, mean reversion, processing spreads, progression wave, correlated items, vendor floor, build effects, inflation index
+- Patterns that lack history show when they will be ready
+- GUI: Market overview and Item detail views on real data

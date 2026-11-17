@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime
 
 from coppertrail.collector.store import TABLES, Store, to_arrow
 from coppertrail.patterns.base import Context
-from coppertrail.patterns.tables import builds, item_details, recipes
+from coppertrail.query.series import builds, item_details, recipes
 
 T1 = datetime(2026, 11, 17, 6, 0, tzinfo=UTC)
 T2 = datetime(2026, 11, 18, 6, 0, tzinfo=UTC)

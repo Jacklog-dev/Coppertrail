@@ -9,8 +9,16 @@ import numpy as np
 import pandas as pd
 
 from coppertrail.patterns.base import Context
-from coppertrail.patterns.tables import BUILD_COLS, DETAIL_COLS, RECIPE_COLS
-from coppertrail.query.series import ECONOMY_COLS, HOURLY_COLS, ITEM_COLS, SCAN_COLS, SNAPSHOT_COLS
+from coppertrail.query.series import (
+    BUILD_COLS,
+    DETAIL_COLS,
+    ECONOMY_COLS,
+    HOURLY_COLS,
+    ITEM_COLS,
+    RECIPE_COLS,
+    SCAN_COLS,
+    SNAPSHOT_COLS,
+)
 
 TZ = "Europe/Berlin"
 

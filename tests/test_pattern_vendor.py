@@ -5,9 +5,8 @@ import pandas as pd
 from pattern_fixtures import hourly_frame, items_frame, local_hours, make_ctx, noise
 
 from coppertrail.patterns.base import run
-from coppertrail.patterns.tables import DETAIL_COLS
 from coppertrail.patterns.vendor import vendor_floor
-from coppertrail.query.series import SNAPSHOT_COLS
+from coppertrail.query.series import DETAIL_COLS, SNAPSHOT_COLS
 
 START = "2026-11-08 23:00"  # 00:00 CET on 9 Nov
 N = 3 * 24
