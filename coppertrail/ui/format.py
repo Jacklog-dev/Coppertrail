@@ -1,6 +1,6 @@
 """Display formatting from HANDOVER 8b "Data display conventions".
 
-Pure functions without Qt, so views, tables and tests share one implementation.
+Pure functions, so the bridge, views and tests share one implementation.
 Prices are integers in copper (1g = 100s = 10,000c), as stored by the collector.
 """
 
@@ -17,8 +17,7 @@ RISE = "▲"  # black up-pointing triangle
 FALL = "▼"  # black down-pointing triangle
 LOCAL_TZ = ZoneInfo("Europe/Berlin")  # CET/CEST, the display time zone
 
-# Month names fixed in English: strftime month names follow the process
-# locale, which QApplication sets from the system.
+# Month names fixed in English: strftime month names follow the process locale.
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 Unit = Literal["g", "s", "c"]
