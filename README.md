@@ -5,8 +5,7 @@ history into a local archive, looks for patterns and outliers (daily rhythm,
 mispricings, supply shocks, processing spreads, inflation), and shows them in
 a desktop app (pywebview with an HTML/CSS front end and uPlot charts).
 
-**Status:** early. The collector works. The GUI window frame and filters work;
-its views and the pattern jobs come next.
+**Status:** Under construction
 
 ```bash
 uv run python -m coppertrail.ui --data-dir path/to/your/private/data
