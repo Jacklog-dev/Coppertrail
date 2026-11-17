@@ -1,5 +1,14 @@
 """Pattern jobs (HANDOVER section 6). Importing this package registers every job."""
 
+# Job modules register themselves on import; add each new one here.
+from coppertrail.patterns import (  # noqa: F401, E402
+    buyouts,
+    inflation,
+    mispricings,
+    progression,
+    rhythm,
+    supply,
+)
 from coppertrail.patterns.base import (
     EVENT_COLS,
     EVENT_TYPES,
@@ -11,9 +20,6 @@ from coppertrail.patterns.base import (
     pattern,
     run,
 )
-
-# Job modules register themselves on import; add each new one here.
-# from coppertrail.patterns import rhythm  # noqa: F401
 
 __all__ = [
     "EVENT_COLS",
