@@ -8,6 +8,11 @@ Layout under the data directory:
 Every staged file is written atomically (tmp + rename), so a run that dies mid-way
 leaves only complete files behind. Merging is an upsert on the table key, keeping
 the most recent fetch, so merging the same staged data twice changes nothing.
+
+A refetched row whose values match the stored row (ignoring the bookkeeping columns
+`run_id` and `fetched_at`) keeps the stored row, and a day file whose merged content is
+unchanged is not rewritten. Each run refetches 7 days of hourly data, so without this
+every run would rewrite every day file and git would store a full copy of each.
 """
 
 from __future__ import annotations
@@ -24,6 +29,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 TS = pa.timestamp("us", tz="UTC")
+
+# Columns that say which run fetched a row, not what was observed.
+BOOKKEEPING = ("run_id", "fetched_at")
 
 
 @dataclass(frozen=True)
@@ -265,22 +273,25 @@ class Store:
         for day, idx in sorted(by_day.items()):
             chunk = new.take(pa.array(idx))
             path = self.day_path(table, day)
-            merged = self._merge(table, path, chunk)
+            old = pq.read_table(path) if path.exists() else None
+            merged = self._merge(table, old, chunk)
+            if old is not None and merged.equals(old):
+                continue  # unchanged: leave the file (and git) alone
             _atomic_write(merged, path)
             written.append(path)
         return written
 
-    def _merge(self, table: Table, path: Path, chunk: pa.Table) -> pa.Table:
+    def _merge(self, table: Table, old: pa.Table | None, chunk: pa.Table) -> pa.Table:
         if not table.key:  # replace the day's rows
             return chunk
-        old = pq.read_table(path) if path.exists() else None
         con = duckdb.connect()
         try:
             con.register("new_rows", chunk)
             if old is not None:
                 con.register("old_rows", old)
+                new_rows = self._changed_rows_sql(table, old, chunk)
                 union = (
-                    "SELECT *, 1 AS _prio FROM new_rows "
+                    f"SELECT *, 1 AS _prio FROM ({new_rows}) "
                     "UNION ALL BY NAME SELECT *, 0 AS _prio FROM old_rows"
                 )
             else:
@@ -298,6 +309,19 @@ class Store:
         if table.schema is not None:
             result = result.select(table.schema.names).cast(table.schema)
         return result
+
+    @staticmethod
+    def _changed_rows_sql(table: Table, old: pa.Table, chunk: pa.Table) -> str:
+        """SQL for the new rows that differ from the stored row with the same key.
+        A new row identical in every observed column is dropped, so the stored row
+        (with its original run_id and fetched_at) survives the merge."""
+        new_cols, old_cols = chunk.column_names, set(old.column_names)
+        if not set(new_cols) <= old_cols:  # schema grew: keep every new row
+            return "SELECT * FROM new_rows"
+        on = " AND ".join(f'n."{k}" = o."{k}"' for k in table.key)
+        same = [c for c in new_cols if c not in table.key and c not in BOOKKEEPING]
+        on += "".join(f' AND n."{c}" IS NOT DISTINCT FROM o."{c}"' for c in same)
+        return f"SELECT n.* FROM new_rows n ANTI JOIN old_rows o ON {on}"
 
     def read_all(self, table: Table) -> pa.Table | None:
         files = self.day_files(table)
