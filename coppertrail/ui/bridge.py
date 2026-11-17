@@ -20,7 +20,7 @@ import duckdb
 import pandas as pd
 
 from coppertrail.collector.store import TABLES, Store
-from coppertrail.patterns import Context, PatternResult
+from coppertrail.patterns import REGISTRY, Context, PatternResult
 from coppertrail.patterns import run as run_pattern
 from coppertrail.patterns.inflation import classify
 from coppertrail.query import series
@@ -35,6 +35,8 @@ from coppertrail.query.filtering import apply_filters, date_window, item_classes
 from coppertrail.query.groups import ItemGroup, load_groups, save_groups
 from coppertrail.query.settings import Filters, load_settings, save_settings
 from coppertrail.ui import format as fmt
+from coppertrail.ui import movers as mv
+from coppertrail.ui import patternview as pv
 from coppertrail.ui import viewdata as vd
 from coppertrail.ui.pull import COMMAND, NO_GIT, NOT_A_CLONE, PullResult, can_pull, run_pull
 from coppertrail.ui.viewdata import coin, plural
@@ -164,7 +166,7 @@ class Memo:
     A failed computation is not kept, so the next call tries again.
     """
 
-    def __init__(self, size: int = 48) -> None:
+    def __init__(self, size: int = 128) -> None:
         self._lock = threading.Lock()
         self._futures: OrderedDict[Hashable, Future] = OrderedDict()
         self._size = size
@@ -274,6 +276,9 @@ class Bridge:
         "item_list",
         "item_detail",
         "add_to_group",
+        "patterns",
+        "movers",
+        "mispricings_now",
     )
     # Called without the bridge lock (js_facade, dev server): they copy their inputs under
     # it and run the slow part (pattern jobs) unlocked, so the filter bar stays responsive.
@@ -282,6 +287,9 @@ class Bridge:
         "overview_events",
         "item_list",
         "item_detail",
+        "patterns",
+        "movers",
+        "mispricings_now",
     )
 
     def __init__(
@@ -731,6 +739,140 @@ class Bridge:
             "events": vd.item_events(events, {item_id: item.name}, lo, hi),
             "groups": [{"name": g.name, "member": g.name in groups} for g in inp.groups],
         }
+
+    # Patterns ----------------------------------------------------------------------------
+    # Spec: docs/superpowers/specs/2026-11-17-patterns-movers-views.md
+
+    def _pattern_ctx(self, inp: ViewInputs) -> Context:
+        """One Context per inputs: every job (and every row click) reads hourly once."""
+        return self.memo.get(
+            ("pctx", *inp.key), lambda: Context(inp.data_dir, inp.ids, inp.lo, inp.hi)
+        )
+
+    def _pattern_run(self, inp: ViewInputs, key: str) -> PatternResult:
+        ctx = self._pattern_ctx(inp)
+        return self.memo.get(("prun", key, *inp.key), lambda: run_pattern(key, ctx))
+
+    def _waiting(self, inp: ViewInputs) -> set[str]:
+        """Jobs whose input the collector has not filled yet (recipes, builds, vendor prices)."""
+
+        def compute() -> set[str]:
+            ctx = self._pattern_ctx(inp)
+            out = set()
+            if ctx.recipes.empty:
+                out.add("processing_spreads")
+            if ctx.builds.empty:
+                out.add("build_effects")
+            d = ctx.details
+            if d.empty or not (pd.to_numeric(d["vendor_price"], errors="coerce") > 0).any():
+                out.add("vendor_floor")
+            return out
+
+        return self.memo.get(("waiting", *inp.key), compute)
+
+    def patterns(
+        self,
+        key: str | None = None,
+        select: str | int | None = None,
+        item: int | None = None,
+        sort: str | None = None,
+    ) -> dict:
+        """One pattern tab: tabs, basis line, state, charts for the selected row, ranked table."""
+        inp = self._inputs()
+        key = key if key in REGISTRY else pv.DEFAULT_KEY
+        item = None if item is None else int(item)
+        select = None if select is None else str(select)
+        return self.memo.get(
+            ("patterns", key, select, item, sort, *inp.key),
+            lambda: self._patterns(inp, key, select, item, sort),
+        )
+
+    def _patterns(
+        self, inp: ViewInputs, key: str, select: str | None, item: int | None, sort: str | None
+    ) -> dict:
+        spec = REGISTRY[key]
+        st = inp.status
+        history = (st.last_day - st.first_day).days + 1 if st.first_day and st.last_day else 0
+        ctx = self._pattern_ctx(inp)
+        waiting = self._waiting(inp)
+        out: dict[str, Any] = {
+            "sub": (
+                f"{fmt.thousands(len(inp.shown))} of {plural(len(inp.items), 'item')}"
+                f" · {plural(history, 'day')} of history"
+            ),
+            "tabs": pv.tabs(ctx.days, waiting),
+            "key": key,
+            "title": spec.title,
+        }
+        try:
+            result = self._pattern_run(inp, key)
+        except Exception as exc:  # noqa: BLE001 - one failing job must not break the view
+            return {**out, "state": "error", "error": _failed(exc)}
+        out["basis"] = pv.basis(result)
+        if not result.ready:
+            out["basis"]["text"] = (
+                f" of data so far · needs {plural(spec.min_days, 'day')}"
+                if result.days_used
+                else " of data so far"
+            )
+            out["state"] = "history"
+            out["gap"] = history_gap(
+                spec.title,
+                needed=spec.min_days,
+                have=result.days_used,
+                ready_on=result.ready_on,
+            )
+            return out
+        if key in waiting:
+            title, text = pv.WAITING[key]
+            return {**out, "state": "waiting", "waiting": {"title": title, "text": text}}
+        try:
+            body = pv.build(result, ctx, select=select, item=item, sort=sort)
+        except Exception as exc:  # noqa: BLE001
+            return {**out, "state": "error", "error": _failed(exc)}
+        return {**out, "state": "ready", **body}
+
+    # Movers & outliers --------------------------------------------------------------------
+
+    def movers(self, rng: str = mv.DEFAULT_RANGE) -> dict:
+        """Biggest risers and fallers over 24 h, 7 d or 30 d (the filtered items)."""
+        inp = self._inputs()
+        rng = rng if rng in mv.RANGES else mv.DEFAULT_RANGE
+
+        def compute() -> dict:
+            sub = f"{fmt.thousands(len(inp.shown))} of {plural(len(inp.items), 'item')}"
+            last = inp.status.last_day
+            if last is None or not inp.shown:
+                return {"sub": sub, **mv.movers(pd.DataFrame(), [], rng)}
+            first = last - timedelta(days=mv.read_days(rng))
+            hourly = series.hourly(inp.data_dir, inp.ids, first, last)
+            return {"sub": sub, **mv.movers(hourly, inp.shown, rng)}
+
+        return self.memo.get(("movers", rng, *inp.key), compute)
+
+    def mispricings_now(self, threshold: float = mv.DEFAULT_THRESHOLD) -> dict:
+        """Current mispricings (job `mispricings` over the last two days of scans)."""
+        inp = self._inputs()
+        threshold = mv.threshold_of(threshold)
+
+        def compute() -> dict:
+            last = inp.status.last_day
+            if last is None or not inp.shown:
+                return mv.mispricings_now(None, pd.DataFrame(), [], {}, threshold)
+            ctx = Context(inp.data_dir, inp.ids, last - timedelta(days=1), last)
+            result = self.memo.get(
+                ("mnow", *inp.key), lambda: (run_pattern("mispricings", ctx), ctx)
+            )
+            res, ctx = result
+            group_of: dict[int, str] = {}
+            for item in inp.shown:
+                for g in inp.groups:
+                    if g.matches(item):
+                        group_of[item.item_id] = g.name
+                        break
+            return mv.mispricings_now(res, ctx.scans, inp.shown, group_of, threshold)
+
+        return self.memo.get(("mispricings_now", threshold, *inp.key), compute)
 
     def add_to_group(self, name: str, item_id: int) -> dict:
         """Adds one item to a group (by id) and saves the groups."""

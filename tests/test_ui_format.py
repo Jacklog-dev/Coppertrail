@@ -114,3 +114,12 @@ def test_change_from_fraction():
     assert fmt.change(None) is None
     assert fmt.change(float("nan")) is None
     assert fmt.signed_percent(-0.041) == "−4.1 %"
+
+
+def test_pattern_helpers():
+    assert fmt.minutes(30.4) == "30 min"
+    assert fmt.minutes(108) == "1 h 48 min"
+    assert fmt.minutes(120) == "2 h"
+    assert fmt.ratio(1.0712) == "1.07 ×"
+    assert fmt.whole_share(0.833) == "83 %"
+    assert fmt.signed_coins_text(-14_050) == "−1g 40s 50c"

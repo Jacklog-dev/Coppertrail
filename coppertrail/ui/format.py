@@ -175,3 +175,28 @@ def change(fraction: float | None) -> dict | None:
         return None
     text, d = percent_change(float(fraction) * 100)
     return {"text": text, "dir": d}
+
+
+def minutes(value: float) -> str:
+    """A duration in minutes: `30 min`, `1 h 48 min`, `2 h`."""
+    m = int(round(float(value)))
+    if m < 60:
+        return f"{m} min"
+    h, rest = divmod(m, 60)
+    return f"{h} h {rest} min" if rest else f"{h} h"
+
+
+def ratio(value: float) -> str:
+    """A price ratio: `1.07 ×` (lowest buyout over vendor price)."""
+    return f"{float(value):.2f} ×"
+
+
+def whole_share(fraction: float) -> str:
+    """An unsigned percentage without decimals: `83 %` (shares of nights, events, hours)."""
+    return f"{round(float(fraction) * 100)} %"
+
+
+def signed_coins_text(copper: int) -> str:
+    """Letter form with a real minus for losses: `−1g 40s 50c`."""
+    text = coins_text(abs(int(copper)))
+    return MINUS + text if copper < 0 else text
