@@ -52,6 +52,7 @@ def find(scans: pd.DataFrame) -> pd.DataFrame:
             & (q <= pq * (1 - QTY_DROP))
             & (m >= pm * (1 + MIN_JUMP))
         )
+        flag = flag & ~flag.shift(fill_value=False)  # a buyout over several scans counts once
         for i in np.flatnonzero(flag.to_numpy()):
             before = pm.iloc[i]
             later = np.flatnonzero((m.iloc[i + 1 :] <= before * (1 + RESET_BAND)).to_numpy())

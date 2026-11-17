@@ -11,6 +11,7 @@ from coppertrail.patterns.common import by_hour, duration, finish_ranked, minute
 THRESHOLD = 0.30  # min buyout at least 30 % below the reference
 REF_WINDOW = "6h"  # reference: median of p25 over the prior 6 h of scans
 REF_MIN_SCANS = 6
+MAX_GAP = pd.Timedelta(minutes=60)  # a later scan further away says nothing about the fix
 
 HIT_EVENTS = 2  # a hit repeats: at least two mispricings that corrected
 
@@ -55,7 +56,12 @@ def find(scans: pd.DataFrame, threshold: float = THRESHOLD) -> pd.DataFrame:
             reference = float(ref.iloc[first])
             low = float(g["min"].iloc[idx].min())
             after = last + 1
-            corrected_at = g["observed_at"].iloc[after] if after < len(g) else pd.NaT
+            corrected_at = pd.NaT
+            if (
+                after < len(g)
+                and g["observed_at"].iloc[after] - g["observed_at"].iloc[last] <= MAX_GAP
+            ):
+                corrected_at = g["observed_at"].iloc[after]
             out.append(
                 {
                     "item_id": int(item_id),

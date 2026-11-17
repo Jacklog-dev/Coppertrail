@@ -133,7 +133,8 @@ def basket(prices: pd.DataFrame, groups: pd.Series, sales: pd.Series) -> tuple:
     return idx, per.rename_axis("item_id").reset_index()
 
 
-def economy_chart(e: pd.DataFrame) -> pd.DataFrame:
+def economy_chart(e: pd.DataFrame, base_day=None) -> pd.DataFrame:
+    """Gold listed (in gold), auctions, units; gold_index = 100 on `base_day` (or day one)."""
     if e.empty:
         return pd.DataFrame(columns=["day", "gold_listed", "auctions", "units", "gold_index"])
     out = pd.DataFrame(
@@ -144,7 +145,9 @@ def economy_chart(e: pd.DataFrame) -> pd.DataFrame:
             "units": e["units"],
         }
     ).reset_index(drop=True)
-    out["gold_index"] = 100 * out["gold_listed"] / out["gold_listed"].iloc[0]
+    at_base = out.loc[out["day"] == base_day, "gold_listed"] if base_day is not None else []
+    base = at_base.iloc[0] if len(at_base) else out["gold_listed"].iloc[0]
+    out["gold_index"] = 100 * out["gold_listed"] / base if base else np.nan
     return out
 
 
@@ -163,11 +166,13 @@ def economy_chart(e: pd.DataFrame) -> pd.DataFrame:
 )
 def inflation(ctx: Context) -> PatternResult:
     h = ctx.hourly
-    econ = economy_chart(ctx.economy)
     if h.empty:
+        econ = economy_chart(ctx.economy)
         return PatternResult(charts={"economy": econ}, note="No hourly data in the range.")
     groups = classify(ctx.items)
     idx, per = basket(daily_prices(h), groups, sales_per_day(ctx))
+    # Same base day as the price indexes, so the charts can be overlaid.
+    econ = economy_chart(ctx.economy, idx["day"].min() if len(idx) else None)
     wide = idx.pivot(index="day", columns="group", values="index") if len(idx) else None
     div = pd.DataFrame(columns=["day", "divergence"])
     if wide is not None and {"scarce", "farmable"} <= set(wide.columns):

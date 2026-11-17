@@ -9,6 +9,7 @@ from coppertrail.patterns.base import Context, PatternResult, pattern
 from coppertrail.patterns.common import finish_ranked, local_day
 
 MIN_HOURS = 12  # a CET day counts with at least 12 hourly rows
+MIN_BASE_QTY = 20  # items listed thinner than this on the base day are left out
 PEAK_GROWTH = 0.05  # a growth phase needs smoothed supply growth of 5 %/day or more
 FLAT_SHARE = 0.25  # flattened: growth below a quarter of the peak
 BANDS = [(1, 9), (10, 19), (20, 29), (30, 39), (40, 49), (50, 59), (60, 60)]
@@ -63,9 +64,19 @@ def daily(h: pd.DataFrame) -> pd.DataFrame:
 
 
 def _relative(d: pd.DataFrame) -> pd.DataFrame:
-    first = d.groupby("item_id")[["min", "quantity"]].transform("first")
+    """Index against one base day (the first full day in the range) for every item.
+
+    Items missing on the base day, or listed thinner than MIN_BASE_QTY, are dropped, so a
+    band median never mixes items indexed to different days.
+    """
+    if d.empty:
+        return d.assign(price_idx=pd.Series(dtype=float), supply_idx=pd.Series(dtype=float))
+    base = d[d["day"] == d["day"].min()].set_index("item_id")
+    base = base[(base["quantity"] >= MIN_BASE_QTY) & (base["min"] > 0)]
+    d = d[d["item_id"].isin(base.index)]
     return d.assign(
-        price_idx=100 * d["min"] / first["min"], supply_idx=100 * d["quantity"] / first["quantity"]
+        price_idx=100 * d["min"] / d["item_id"].map(base["min"]),
+        supply_idx=100 * d["quantity"] / d["item_id"].map(base["quantity"]),
     )
 
 
@@ -168,6 +179,7 @@ def progression_wave(ctx: Context) -> PatternResult:
         items_hit=int(per["hit"].sum()),
         note=(
             f"Bands with a turning point: {', '.join(turned) or 'none'}. "
-            "Items without a level are left out."
+            "Items without a level, or missing or thinner than "
+            f"{MIN_BASE_QTY} units on the base day, are left out."
         ),
     )

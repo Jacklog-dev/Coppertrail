@@ -71,7 +71,9 @@ def find(h: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         base_m = m.shift().rolling(BASE_HOURS, min_periods=BASE_MIN).median()
         # Without yesterday's hours the rhythm can't be told apart: no shock on day one.
         flag = (q >= base_q * (1 + JUMP)) & (median_q >= MIN_BASE_QTY) & yesterday.notna()
-        rid = runs(flag)
+        # Runs over the hours present: an archive gap inside a shock does not split it.
+        present = q.notna()
+        rid = runs(flag[present]).reindex(flag.index, fill_value=-1)
         lengths = rid[rid >= 0].value_counts()
         rid = rid.where(rid.map(lengths).fillna(0) >= MIN_RUN, -1)
         c, lag = _xcorr(g)

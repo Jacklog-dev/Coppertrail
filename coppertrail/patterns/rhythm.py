@@ -117,7 +117,8 @@ def daily_rhythm(ctx: Context) -> PatternResult:
     per = nights.groupby("item_id").agg(
         wins=("won", "sum"),
         nights=("won", "size"),
-        avg_result=("result", "mean"),
+        # 20 % trimmed: one spiky night must not carry the average (HANDOVER 5).
+        avg_result=("result", lambda s: trim_mean(s, 0.2)),
         median_result=("result", "median"),
     )
     per["wins"] = per["wins"].astype("int64")

@@ -93,3 +93,19 @@ def test_buyout_needs_both_signals():
     df2.loc[80:, "min"] = 1500.0  # price jump alone
     res = buyouts(_ctx([df, df2], [1, 2]))
     assert res.items_hit == 0
+
+
+def test_staged_buyout_counts_once():
+    df = _flat(1)
+    df.loc[80:91, ["quantity", "min"]] = [100.0, 1300.0]  # first step
+    df.loc[81:91, ["quantity", "min"]] = [40.0, 1700.0]  # second step, next scan
+    res = buyouts(_ctx([df], [1]))
+    assert len(res.events) == 1
+
+
+def test_correction_after_a_long_scan_gap_is_unknown():
+    df = _flat(1)
+    df.loc[60, "min"] = 450.0
+    df = df.drop(index=range(61, 80))  # collector gap of over 3 h after the snipe
+    res = mispricings(_ctx([df], [1]))
+    assert np.isnan(res.charts["events"]["minutes_to_correct"].iloc[0])
