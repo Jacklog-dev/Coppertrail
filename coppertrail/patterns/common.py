@@ -39,6 +39,24 @@ def local_day(ts: pd.Series) -> pd.Series:
     return ts.dt.tz_convert(TZ).dt.date
 
 
+def daily_prices(h: pd.DataFrame, col: str = "min", min_hours: int = 12) -> pd.DataFrame:
+    """Per item and CET day: median of hourly `col` as `price`, days with >= `min_hours` rows.
+
+    Also `quantity` (mean listed quantity that day) when the hourly frame has it.
+    """
+    cols = ["item_id", "day", "price"] + (["quantity"] if "quantity" in h else [])
+    if h.empty:
+        return pd.DataFrame(columns=cols)
+    h = h.assign(day=local_day(h["hour"]))
+    g = h.groupby(["item_id", "day"])
+    d = g[col].agg(["median", "size"]).rename(columns={"median": "price"})
+    if "quantity" in h:
+        d["quantity"] = g["quantity"].mean()
+    d = d[d["size"] >= min_hours]
+    d["price"] = d["price"].astype("float64")
+    return d.reset_index()[cols]
+
+
 def runs(flag: pd.Series) -> pd.Series:
     """Run id per row: consecutive True rows share an id; False rows get -1."""
     f = flag.fillna(False).astype(bool).to_numpy()

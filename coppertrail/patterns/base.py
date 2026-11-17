@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from coppertrail.patterns import tables
 from coppertrail.query import series
 from coppertrail.query.catalog import archive_status
 
@@ -74,6 +75,41 @@ class Context:
         if self.item_ids is not None:
             it = it[it["item_id"].isin(self.item_ids)]
         return it.reset_index(drop=True)
+
+    @cached_property
+    def details(self) -> pd.DataFrame:
+        """subclass, required_level, vendor_price per selected item (items with details only)."""
+        d = tables.item_details(self.data_dir)
+        if self.item_ids is not None:
+            d = d[d["item_id"].isin(self.item_ids)]
+        return d.reset_index(drop=True)
+
+    @cached_property
+    def recipes(self) -> pd.DataFrame:
+        """All recipes (one row per reagent), not limited by the item selection."""
+        return tables.recipes(self.data_dir)
+
+    @cached_property
+    def builds(self) -> pd.DataFrame:
+        """Builds published inside the day range."""
+        return tables.builds(self.data_dir, self.start, self.end)
+
+    def hourly_of(self, item_ids: Iterable[int]) -> pd.DataFrame:
+        """Hourly rows for these items in the range, even outside the selection.
+
+        For jobs that need prices of related items (recipe reagents, products).
+        """
+        ids = sorted({int(i) for i in item_ids})
+        if self.item_ids is None:
+            return self.hourly[self.hourly["item_id"].isin(ids)].reset_index(drop=True)
+        return series.hourly(self.data_dir, ids, self.start, self.end)
+
+    def snapshot_of(self, item_ids: Iterable[int]) -> pd.DataFrame:
+        """Latest snapshot row for these items, even outside the selection."""
+        ids = sorted({int(i) for i in item_ids})
+        if self.item_ids is None:
+            return self.snapshot[self.snapshot["item_id"].isin(ids)].reset_index(drop=True)
+        return series.latest_snapshot(self.data_dir, ids)
 
     @cached_property
     def span(self) -> tuple[date | None, date | None]:

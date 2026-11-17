@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from coppertrail.patterns.base import Context
+from coppertrail.patterns.tables import BUILD_COLS, DETAIL_COLS, RECIPE_COLS
 from coppertrail.query.series import ECONOMY_COLS, HOURLY_COLS, ITEM_COLS, SCAN_COLS, SNAPSHOT_COLS
 
 TZ = "Europe/Berlin"
@@ -21,6 +22,9 @@ def make_ctx(
     items: pd.DataFrame | None = None,
     snapshot: pd.DataFrame | None = None,
     economy: pd.DataFrame | None = None,
+    details: pd.DataFrame | None = None,
+    recipes: pd.DataFrame | None = None,
+    builds: pd.DataFrame | None = None,
     start: date = date(2026, 11, 1),
     end: date = date(2026, 11, 30),
 ) -> Context:
@@ -31,6 +35,9 @@ def make_ctx(
         "items": (items, ITEM_COLS),
         "snapshot": (snapshot, SNAPSHOT_COLS),
         "economy": (economy, ECONOMY_COLS),
+        "details": (details, DETAIL_COLS),
+        "recipes": (recipes, RECIPE_COLS),
+        "builds": (builds, BUILD_COLS),
     }
     for key, (df, cols) in frames.items():
         ctx.__dict__[key] = pd.DataFrame(columns=cols) if df is None else df

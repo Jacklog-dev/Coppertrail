@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 
 from coppertrail.patterns.base import Context, PatternResult, pattern
-from coppertrail.patterns.common import finish_ranked, local_day, sales_per_day
+from coppertrail.patterns.common import daily_prices, finish_ranked, sales_per_day
 from coppertrail.query.groups import ItemGroup, starter_groups
 
 FARMABLE_GROUPS = ("Herbs", "Leather chain", "Cloth", "Ore and bars")
@@ -62,7 +62,6 @@ VENDOR_TIED = [
 ]
 GROUPS = ("farmable", "scarce", "vendor")
 MOVE = 0.05  # an item "fits the hypothesis" when it moved 5 % the predicted way
-MIN_HOURS = 12
 
 RANKED_COLS = ["group", "weight", "base_price", "last_price", "price_change", "contribution"]
 
@@ -83,14 +82,6 @@ def classify(items: pd.DataFrame) -> pd.Series:
         elif any(g.matches(it) for g in farm):
             out[it.item_id] = "farmable"
     return pd.Series(out, name="group", dtype="object")
-
-
-def daily_prices(h: pd.DataFrame) -> pd.DataFrame:
-    """Per item and CET day: median of hourly min, days with at least 12 rows."""
-    h = h.assign(day=local_day(h["hour"]))
-    d = h.groupby(["item_id", "day"])["min"].agg(["median", "size"])
-    d = d[d["size"] >= MIN_HOURS]["median"].rename("price")
-    return d.reset_index()
 
 
 def basket(prices: pd.DataFrame, groups: pd.Series, sales: pd.Series) -> tuple:
