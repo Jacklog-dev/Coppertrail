@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-The collector exists (HANDOVER section 9, steps 1 to 3). The GUI theme (step 6.1) and window frame (step 6.2: nav rail, filter bar, group editor, status strip) exist, rebuilt on pywebview + HTML/CSS/JS on 2026-11-17 (no Qt, see `docs/superpowers/specs/2026-11-17-webview-gui-design.md`); the four views are placeholders listing the filtered items. There are no pattern jobs yet. **`private/handover/HANDOVER.md` is the spec. Read it before you start any work.** Section 8b is the visual design, and section 9 is the order of work.
+The collector exists (HANDOVER section 9, steps 1 to 3). The GUI theme (step 6.1) and window frame (step 6.2: nav rail, filter bar, group editor, status strip) exist, rebuilt on pywebview + HTML/CSS/JS on 2026-11-17 (no Qt, see `docs/superpowers/specs/2026-11-17-webview-gui-design.md`); the four views are placeholders listing the filtered items. The series query layer, the pattern contract and CLI, and the section 5 baseline (step 4) exist since 2026-11-17; no pattern jobs are registered yet. The plan for the rest is `docs/superpowers/plans/2026-11-17-complete-the-app.md`: parallel sessions with file ownership (collector / patterns / ui); `query/`, CLAUDE.md and README stay with the coordinating session. **`private/handover/HANDOVER.md` is the spec. Read it before you start any work.** Section 8b is the visual design, and section 9 is the order of work.
 
 ## Commands
 
@@ -23,6 +23,9 @@ uv run python -m coppertrail.ui --dev --port 8765     # serve the page on 127.0.
 uv run python -m coppertrail.ui --screenshot shot.png # headless Edge screenshot (--size, --sample, --data-dir)
 uv run python -m coppertrail.ui --sample              # style sample page (combine with --dev or --screenshot)
 uv run python -m coppertrail.ui.webtheme              # regenerate web/css/tokens.css after editing tokens.py
+uv run python -m coppertrail.patterns list            # registered pattern jobs
+uv run python -m coppertrail.patterns run KEY         # basis line + top rows (--group NAME, --days N, --from/--to, --csv FILE)
+uv run python -m coppertrail.patterns baseline        # HANDOVER section 5 recomputed, side by side
 ```
 
 Collector notes:
@@ -30,6 +33,11 @@ Collector notes:
 - Exit codes: 0 ok or partial, 1 failed, 2 another run holds the lock, 3 the `API_ARCHIVE_UNTIL` cutoff was reached or archiving is disabled.
 - Each fetched item is staged in `<data-dir>/.staging/<run_id>/` and merged into the day files at the end of the run. Rerunning after a crash resumes the run, as long as it started within the last 12 h.
 - Day-file tables: `hourly`, `scans`, `snapshot`, `economy`, `items`, `watchlist`, `runs`, `gaps`, `population`. Logs go to `<data-dir>/logs/`.
+
+Query and pattern notes:
+- `coppertrail/query/series.py`: `hourly`, `scans`, `snapshots`, `latest_snapshot`, `economy`, `items`, each a pandas frame. Item ids and an inclusive UTC day range (as `filtering.date_window` returns it) select rows; only day files inside the range are read. Timestamps are tz-aware UTC (the DuckDB session is set to UTC, else TIMESTAMPTZ comes back in local time). Missing tables give typed empty frames.
+- `coppertrail/patterns/base.py`: a job is `fn(ctx: Context) -> PatternResult`, registered with `@pattern(key, number=, title=, min_days=, data=, method=)` and imported in `patterns/__init__.py`. `run(key, ctx)` fills the basis (days used, first/last day, method) and skips the job when the archive is shorter than `min_days` (`needs_days`, `ready_on`). Jobs read only through `Context` and return `ranked` (best first), `charts` (named frames) and, for patterns 3/4/5, `events` in `EVENT_COLS` (`item_id, at, type, detail, magnitude`). No GUI imports in `patterns/`.
+- Baseline definitions (`patterns/baseline.py`): top 300 by sales/day x min buyout with at least 20 sales/day (only watchlist items have hourly data, so fewer remain); flip = per-item median over nights of the evening 21-01 mean against the next morning's 07-13 mean minus 5 %; trend = first against last full CET day (at least 20 hours). Local times are Europe/Berlin.
 
 GUI notes:
 - No Qt, ever (Jack's rule): a test fails if PySide/PyQt/qtpy/pyqtgraph appear in `uv.lock` or as imports. `[tool.uv] environments` limits the lock to win32/linux/darwin because pywebview lists qtpy for OpenBSD.
