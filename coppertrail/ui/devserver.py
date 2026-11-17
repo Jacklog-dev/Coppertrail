@@ -65,6 +65,9 @@ def _handler(bridge: Bridge) -> type[BaseHTTPRequestHandler]:
             self._send(status, body, CONTENT_TYPES[".json"])
 
         def do_GET(self):  # noqa: N802
+            if urlsplit(self.path).path == "/api":
+                self._json(HTTPStatus.OK, {"dev": True})  # api.js: "not inside pywebview"
+                return
             target = _static_file(self.path)
             if target is None:
                 self._send(HTTPStatus.NOT_FOUND, b"not found", CONTENT_TYPES[".txt"])

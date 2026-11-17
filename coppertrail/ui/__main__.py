@@ -1,17 +1,6 @@
-"""Start the GUI. Being rebuilt on pywebview, see docs/superpowers/plans."""
+"""Start the GUI: `python -m coppertrail.ui --help` for the options."""
 
-from __future__ import annotations
-
-import sys
-
-
-def main(argv: list[str] | None = None) -> int:
-    print(
-        "GUI is being rebuilt (pywebview), see docs/superpowers/plans/2026-11-17-webview-gui.md",
-        file=sys.stderr,
-    )
-    return 1
-
+from coppertrail.ui.app import main
 
 if __name__ == "__main__":
     raise SystemExit(main())

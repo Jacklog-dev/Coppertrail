@@ -80,3 +80,9 @@ def test_missing_file_is_404(server):
     with pytest.raises(HTTPError) as err:
         urlopen(server + "missing.html", timeout=5)
     assert err.value.code == 404
+
+
+def test_dev_marker(server):
+    # api.js asks this to tell the dev server from pywebview's own file server.
+    with urlopen(server + "api", timeout=5) as resp:
+        assert json.loads(resp.read().decode("utf-8")) == {"dev": True}

@@ -16,8 +16,24 @@ window.ct = {
   },
 };
 
-/** True inside the pywebview window. */
-export const inApp = () => "pywebview" in window;
+// pywebview injects `window.pywebview` after the page's modules may already run, so the
+// page cannot just check for it. The dev server answers GET /api with {"dev": true};
+// pywebview's own file server does not know that path.
+let modePromise = null;
+function mode() {
+  modePromise ??= window.pywebview
+    ? Promise.resolve("app")
+    : fetch("/api", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : {}))
+        .then((body) => (body.dev === true ? "dev" : "app"))
+        .catch(() => "app");
+  return modePromise;
+}
+
+/** True inside the pywebview window (resolves once known). */
+export async function inApp() {
+  return (await mode()) === "app";
+}
 
 function pywebviewApi() {
   if (window.pywebview?.api) return Promise.resolve(window.pywebview.api);
@@ -28,7 +44,7 @@ function pywebviewApi() {
 
 /** Call a bridge method by name; resolves to its return value. */
 export async function call(name, ...args) {
-  if (inApp()) {
+  if (await inApp()) {
     const api = await pywebviewApi();
     return api[name](...args);
   }
