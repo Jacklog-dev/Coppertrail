@@ -6,6 +6,7 @@ Prices are integers in copper (1g = 100s = 10,000c), as stored by the collector.
 
 from __future__ import annotations
 
+import math
 from datetime import date, datetime
 from typing import Literal
 from zoneinfo import ZoneInfo
@@ -130,3 +131,47 @@ def needs_more(days: int) -> str:
     if days >= 14:
         return f"Needs {-(-days // 7)} more weeks of data"
     return f"Needs {days} more day{'' if days == 1 else 's'} of data"
+
+
+def day_month(d: date) -> str:
+    """`7 Nov`, for chart subtitles ("100 = 10 Nov")."""
+    return f"{d.day} {MONTHS[d.month - 1]}"
+
+
+def hour_of_day(hour: int) -> str:
+    """`07:00`."""
+    return f"{int(hour):02d}:00"
+
+
+def points(value: float) -> str:
+    """Index points, always signed: `+19.8 pts`, `−27.0 pts`."""
+    text = signed_number(value, 1)
+    return f"{text if text[0] in '+' + MINUS else '± ' + text} pts"
+
+
+def share(fraction: float) -> str:
+    """An unsigned percentage with one decimal: `16.3 %`."""
+    return f"{fraction * 100:.1f} %"
+
+
+def _finite(x) -> bool:
+    try:
+        return x is not None and math.isfinite(float(x))
+    except (TypeError, ValueError):
+        return False
+
+
+def signed_percent(fraction: float) -> str:
+    """A signed percentage without arrow, for foot lines: `−4.1 %` (same rounding)."""
+    pct = fraction * 100
+    decimals = 1 if abs(pct) < 50 else 0
+    text = signed_number(round(pct, decimals), decimals)
+    return f"{text if text[0] in '+' + MINUS else '± ' + text} %"
+
+
+def change(fraction: float | None) -> dict | None:
+    """A signed fraction (-0.87) as `{text: "▼ −87 %", dir: "fall"}`; None when unknown."""
+    if not _finite(fraction):
+        return None
+    text, d = percent_change(float(fraction) * 100)
+    return {"text": text, "dir": d}

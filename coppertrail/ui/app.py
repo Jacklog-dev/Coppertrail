@@ -24,6 +24,7 @@ from coppertrail.ui.devserver import WEB_DIR, serve
 from coppertrail.ui.pull import PullResult, run_pull
 
 Emit = Callable[[str, dict], None]
+VIEW_IDS = ("overview", "item", "patterns", "movers")  # web/js/navrail.js VIEWS
 FOLDER_CHANGED = "Pull finished, but the data folder changed meanwhile"
 PULL_CRASHED = "Pull failed · the data could not be reloaded"
 
@@ -115,14 +116,18 @@ def js_facade(api: Bridge) -> Any:
     """An object with only the exposed methods, for pywebview's `js_api`.
 
     pywebview exposes every public attribute of `js_api` (and walks nested objects), so the
-    bridge itself would leak its item lists. Calls arrive on pywebview threads; one at a time.
+    bridge itself would leak its item lists. Calls arrive on pywebview threads; one at a time,
+    except the `UNLOCKED` view methods, which copy their inputs under the lock themselves.
     """
     lock = api.lock  # shared with the pull worker
+    unlocked = set(getattr(type(api), "UNLOCKED", ()))
 
     def wrap(name: str):
         method = getattr(api, name)
 
         def call(self, *args):
+            if name in unlocked:
+                return method(*args)
             with lock:
                 return method(*args)
 
@@ -184,12 +189,18 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--screenshot", type=Path, metavar="PNG", help="render to a PNG and exit")
     parser.add_argument("--size", help="window or screenshot size, e.g. 1920x1080")
     parser.add_argument("--port", type=int, default=0, help="dev server port (default: any)")
+    parser.add_argument(
+        "--view", choices=VIEW_IDS, help="open this view first (overview, item, patterns, movers)"
+    )
     args = parser.parse_args(argv)
 
     page = "sample.html" if args.sample else "index.html"
+    if args.view and not args.sample:
+        page += f"#{args.view}"
     if args.dev:
         return run_dev(Bridge(args.data_dir), page, args.port)
     if args.screenshot:
         size = parse_size(args.size or "1920x1080")
         return run_screenshot(Bridge(args.data_dir), page, args.screenshot, size)
-    return run_window(AppApi(args.data_dir), page, parse_size(args.size or "1600x1000"))
+    window_page = page.split("#")[0]  # a file path: the window always opens on the overview
+    return run_window(AppApi(args.data_dir), window_page, parse_size(args.size or "1600x1000"))

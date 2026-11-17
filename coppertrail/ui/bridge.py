@@ -8,12 +8,22 @@ serve it over a 127.0.0.1 HTTP server (`devserver.py`). Display strings are form
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable
-from dataclasses import asdict
-from datetime import UTC, date, datetime
+from collections import OrderedDict
+from collections.abc import Callable, Hashable
+from concurrent.futures import Future
+from dataclasses import asdict, dataclass
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, ClassVar
 
+import duckdb
+import pandas as pd
+
+from coppertrail.collector.store import TABLES, Store
+from coppertrail.patterns import Context, PatternResult
+from coppertrail.patterns import run as run_pattern
+from coppertrail.patterns.inflation import classify
+from coppertrail.query import series
 from coppertrail.query.catalog import (
     ArchiveStatus,
     Item,
@@ -25,23 +35,18 @@ from coppertrail.query.filtering import apply_filters, date_window, item_classes
 from coppertrail.query.groups import ItemGroup, load_groups, save_groups
 from coppertrail.query.settings import Filters, load_settings, save_settings
 from coppertrail.ui import format as fmt
+from coppertrail.ui import viewdata as vd
 from coppertrail.ui.pull import COMMAND, NO_GIT, NOT_A_CLONE, PullResult, can_pull, run_pull
+from coppertrail.ui.viewdata import coin, plural
 
 AHLEDGER_URL = "https://ahledger.com"
 STALE_AFTER_DAYS = 2
 PREVIEW_ROWS = 300
 UNREADABLE = "Could not read this data folder"
 SEARCH_ROWS = 50
-
-
-def plural(n: int, word: str) -> str:
-    return f"{fmt.thousands(n)} {word}{'' if n == 1 else 's'}"
-
-
-def coin(copper: int | None) -> dict | None:
-    if copper is None:
-        return None
-    return {"parts": [[n, u] for n, u in fmt.coin_parts(copper)], "text": fmt.coins_text(copper)}
+LIST_ROWS = 500  # Item detail list panel
+WEEK_READ_DAYS = 9  # hourly read for the "7 d" figures: a week plus partial edge days
+EVENT_JOBS = ("mispricings", "supply_shocks", "buyouts")
 
 
 def item_row(item: Item) -> dict:
@@ -153,6 +158,106 @@ def history_gap(
     }
 
 
+class Memo:
+    """A small LRU of futures: concurrent callers of one key wait for a single computation.
+
+    A failed computation is not kept, so the next call tries again.
+    """
+
+    def __init__(self, size: int = 48) -> None:
+        self._lock = threading.Lock()
+        self._futures: OrderedDict[Hashable, Future] = OrderedDict()
+        self._size = size
+
+    def get(self, key: Hashable, compute: Callable[[], Any]) -> Any:
+        with self._lock:
+            fut = self._futures.get(key)
+            owner = fut is None
+            if owner:
+                fut = self._futures[key] = Future()
+                while len(self._futures) > self._size:
+                    self._futures.popitem(last=False)
+            else:
+                self._futures.move_to_end(key)
+        if owner:
+            try:
+                fut.set_result(compute())
+            except BaseException as exc:
+                fut.set_exception(exc)
+                with self._lock:
+                    if self._futures.get(key) is fut:
+                        del self._futures[key]
+        return fut.result()
+
+    def clear(self) -> None:
+        with self._lock:
+            self._futures.clear()
+
+
+def item_details(data_dir: Path) -> dict[int, dict]:
+    """item_id -> {subclass, vendor_price}: the newest non-null value of each (thin helper).
+
+    Tooltip rows carry no subclass or vendor price, and day files written before the
+    collector fetched them lack the columns: those give no entry.
+    """
+    store = Store(data_dir)
+    files = [str(p).replace("\\", "/") for p in store.day_files(TABLES["items"])]
+    if not files:
+        return {}
+    src = "read_parquet([" + ", ".join(f"'{f}'" for f in files) + "], union_by_name=true)"
+    con = duckdb.connect()
+    try:
+        cols = {r[0] for r in con.sql(f"DESCRIBE SELECT * FROM {src}").fetchall()}
+        wanted = [c for c in ("subclass", "vendor_price") if c in cols]
+        if not wanted:
+            return {}
+        aggs = ", ".join(
+            f"arg_max({c}, fetched_at) FILTER (WHERE {c} IS NOT NULL) AS {c}" for c in wanted
+        )
+        rows = con.sql(f"SELECT item_id, {aggs} FROM {src} GROUP BY item_id").fetchall()
+    finally:
+        con.close()
+    out = {}
+    for row in rows:
+        d = dict(zip(wanted, row[1:], strict=True))
+        if any(v is not None for v in d.values()):
+            out[int(row[0])] = d
+    return out
+
+
+@dataclass(frozen=True)
+class ViewInputs:
+    """What a view method reads, copied under the bridge lock (then computed without it)."""
+
+    data_dir: Path
+    status: ArchiveStatus
+    items: list[Item]
+    shown: list[Item]
+    groups: list[ItemGroup]
+    lo: date
+    hi: date
+
+    @property
+    def ids(self) -> list[int] | None:
+        """The filtered item ids; None when nothing is filtered out (cheaper reads)."""
+        return None if len(self.shown) == len(self.items) else [i.item_id for i in self.shown]
+
+    @property
+    def key(self) -> tuple:
+        ids = self.ids
+        return (
+            str(self.data_dir),
+            self.status.as_of,
+            self.lo,
+            self.hi,
+            None if ids is None else tuple(sorted(ids)),
+            tuple(
+                (g.name, tuple(g.item_ids), tuple(g.patterns), tuple(g.excluded_ids))
+                for g in self.groups
+            ),
+        )
+
+
 class Bridge:
     EXPOSED: ClassVar[tuple[str, ...]] = (
         "state",
@@ -164,6 +269,19 @@ class Bridge:
         "match_names",
         "set_data_dir",
         "pull_latest",
+        "overview",
+        "overview_events",
+        "item_list",
+        "item_detail",
+        "add_to_group",
+    )
+    # Called without the bridge lock (js_facade, dev server): they copy their inputs under
+    # it and run the slow part (pattern jobs) unlocked, so the filter bar stays responsive.
+    UNLOCKED: ClassVar[tuple[str, ...]] = (
+        "overview",
+        "overview_events",
+        "item_list",
+        "item_detail",
     )
 
     def __init__(
@@ -182,6 +300,7 @@ class Bridge:
         else:
             self.data_dir = default_data_dir()
         self.groups: list[ItemGroup] = load_groups()
+        self.memo = Memo()
         self._load()
 
     # Loading -----------------------------------------------------------------
@@ -201,6 +320,7 @@ class Bridge:
         self.items: list[Item] = items
         self.status: ArchiveStatus = status
         self.load_error = error
+        self.memo.clear()  # a pull may add rows without a newer as_of
 
     @property
     def filters(self) -> Filters:
@@ -424,3 +544,207 @@ class Bridge:
         if result.ok:
             self._load()
         return {**asdict(result), "failure": self.pull_failure(result)}
+
+    # Views (Market overview, Item detail) ---------------------------------------------
+    # Spec: docs/superpowers/specs/2026-11-17-market-item-views.md
+
+    def _inputs(self) -> ViewInputs:
+        with self.lock:
+            f = self.filters
+            lo, hi = date_window(f, self.status, today=self._now().date())
+            return ViewInputs(
+                data_dir=self.data_dir,
+                status=self.status,
+                items=self.items,
+                shown=apply_filters(self.items, self.groups, f),
+                groups=[group_from_dict(group_to_dict(g)) for g in self.groups],
+                lo=lo,
+                hi=hi,
+            )
+
+    def _week(self, inp: ViewInputs) -> pd.DataFrame:
+        """The daily table over the archive's last days, all items (every "7 d" figure)."""
+
+        def compute() -> pd.DataFrame:
+            last = inp.status.last_day
+            if last is None:
+                return vd.daily_table(pd.DataFrame())
+            first = last - timedelta(days=WEEK_READ_DAYS)
+            return vd.daily_table(series.hourly(inp.data_dir, None, first, last))
+
+        return self.memo.get(("week", str(inp.data_dir), inp.status.as_of), compute)
+
+    def _economy(self, inp: ViewInputs) -> pd.DataFrame:
+        return self.memo.get(
+            ("economy", str(inp.data_dir), inp.status.as_of),
+            lambda: series.economy(inp.data_dir),
+        )
+
+    def _details(self, inp: ViewInputs) -> dict[int, dict]:
+        return self.memo.get(
+            ("details", str(inp.data_dir), inp.status.as_of),
+            lambda: item_details(inp.data_dir),
+        )
+
+    def overview(self) -> dict:
+        """Market overview without "What changed" (that is `overview_events`, slower)."""
+        inp = self._inputs()
+        return self.memo.get(("overview", *inp.key), lambda: self._overview(inp))
+
+    def _overview(self, inp: ViewInputs) -> dict:
+        lo, hi = inp.lo, inp.hi
+        sub = f"{fmt.thousands(len(inp.shown))} of {plural(len(inp.items), 'item')}"
+        if not inp.shown:
+            return {"sub": sub}
+        ctx = Context(inp.data_dir, inp.ids, lo, hi)  # shared by the jobs below
+        week = self._week(inp)
+        week_shown = week[week["item_id"].isin({i.item_id for i in inp.shown})]
+        frame = pd.DataFrame(
+            {"item_id": [i.item_id for i in inp.shown], "name": [i.name for i in inp.shown]}
+        )
+        economy = self._economy(inp)
+        out: dict[str, Any] = {"sub": sub}
+
+        def section(name: str, build: Callable[[], Any]) -> None:
+            # One failing job must not take the whole view down: that card shows the error.
+            try:
+                out[name] = build()
+            except Exception as exc:  # noqa: BLE001
+                out[name] = {"sub": vd.range_sub(lo, hi), "note": _failed(exc)}
+
+        inflation: PatternResult | None = None
+        try:
+            inflation = run_pattern("inflation", ctx)
+        except Exception as exc:  # noqa: BLE001
+            out["index"] = {"sub": vd.range_sub(lo, hi), "note": _failed(exc)}
+        else:
+            section("index", lambda: vd.index_chart(inflation, lo, hi))
+        section(
+            "tiles",
+            lambda: vd.overview_tiles(
+                total=len(inp.items),
+                shown=len(inp.shown),
+                daily=week_shown,
+                classes=classify(frame),
+                inflation=inflation,
+                economy=economy,
+            ),
+        )
+        section("rhythm", lambda: self._rhythm(inp, ctx))
+        section("supply", lambda: vd.supply_chart(ctx.hourly, lo, hi, vd.week_supply(week_shown)))
+        section("gold", lambda: vd.gold_chart(economy, lo, hi))
+        return out
+
+    def _rhythm(self, inp: ViewInputs, ctx: Context) -> dict:
+        result = run_pattern("daily_rhythm", ctx)
+        gap = None
+        if not result.ready:
+            have = result.days_used
+            gap = history_gap(
+                result.title, needed=have + result.needs_days, have=have, ready_on=result.ready_on
+            )
+        out = vd.rhythm_chart(result, inp.lo, inp.hi, gap)
+        shown = {i.item_id for i in inp.shown}
+        members = [(g.name, {i.item_id for i in g.members(inp.items)} & shown) for g in inp.groups]
+        out["groups"] = vd.rhythm_by_group(result, members, inp.lo, inp.hi)
+        return out
+
+    def overview_events(self) -> dict:
+        """What changed: events of the last 7 archive days for the filtered items."""
+        inp = self._inputs()
+        return self.memo.get(("events", *inp.key), lambda: self._overview_events(inp))
+
+    def _overview_events(self, inp: ViewInputs) -> dict:
+        last = inp.status.last_day
+        if last is None or not inp.shown:
+            return {"sub": "", "rows": [], "note": "No data yet."}
+        lo = max(last - timedelta(days=vd.WEEK - 1), inp.status.first_day or last)
+        ctx = Context(inp.data_dir, inp.ids, lo, last)
+        results, failed = [], []
+        for key in EVENT_JOBS:
+            try:
+                results.append(run_pattern(key, ctx))
+            except Exception:  # noqa: BLE001 - the other jobs' events still show
+                failed.append(key)
+        names = {i.item_id: i.name for i in inp.items}
+        sales = {i.item_id: i.sales_per_day for i in inp.items}
+        out = vd.what_changed(results, names, sales, lo, last)
+        if failed:
+            out["failed"] = f"Could not compute: {', '.join(failed)}"
+        return out
+
+    def item_list(self, sort: str = "sales", pin: int | None = None) -> dict:
+        """The filtered items, sorted; `pin` (the shown item) is kept even beyond the limit."""
+        inp = self._inputs()
+        pin = None if pin is None else int(pin)
+
+        def compute() -> dict:
+            changes = vd.week_change(self._week(inp))
+            return vd.item_list(inp.shown, changes, self._details(inp), sort, LIST_ROWS, pin)
+
+        return self.memo.get(("list", sort, pin, *inp.key), compute)
+
+    def item_detail(self, item_id: int) -> dict:
+        inp = self._inputs()
+        return self.memo.get(
+            ("item", int(item_id), *inp.key), lambda: self._item(inp, int(item_id))
+        )
+
+    def _item(self, inp: ViewInputs, item_id: int) -> dict:
+        item = next((i for i in inp.items if i.item_id == item_id), None)
+        if item is None:
+            return {"missing": True, "note": "This item is not in the archive."}
+        lo, hi = inp.lo, inp.hi
+        detail = self._details(inp).get(item_id, {})
+        vendor = detail.get("vendor_price")
+        hourly = series.hourly(inp.data_dir, [item_id])
+        history = int(hourly["hour"].dt.tz_convert(vd.TZ).dt.date.nunique()) if len(hourly) else 0
+        start, end = vd.utc_bounds(lo, hi)
+        window = hourly[(hourly["hour"] >= start) & (hourly["hour"] < end)].reset_index(drop=True)
+        ctx = Context(inp.data_dir, [item_id], lo, hi)
+        frames = []
+        for key in EVENT_JOBS:
+            try:
+                ev = run_pattern(key, ctx).events
+            except Exception:  # noqa: BLE001 - markers are optional, the chart is not
+                ev = None
+            if ev is not None and len(ev):
+                frames.append(ev[ev["item_id"] == item_id])
+        events = (
+            pd.concat(frames, ignore_index=True).sort_values("at") if frames else vd.empty_events()
+        )
+        snap = ctx.snapshot
+        groups = [g.name for g in inp.groups if g.matches(item)]
+        return {
+            "head": vd.item_header(item, detail.get("subclass"), groups, history),
+            "tiles": vd.item_tiles(
+                item,
+                snap.iloc[-1] if len(snap) else None,
+                window,
+                vd.week_base_price(self._week(inp), item_id),
+                vendor,
+                lo,
+                hi,
+            ),
+            "chart": vd.price_chart(window, events, vendor, lo, hi),
+            "profile": vd.hour_profile(window, lo, hi),
+            "events": vd.item_events(events, {item_id: item.name}, lo, hi),
+            "groups": [{"name": g.name, "member": g.name in groups} for g in inp.groups],
+        }
+
+    def add_to_group(self, name: str, item_id: int) -> dict:
+        """Adds one item to a group (by id) and saves the groups."""
+        for g in self.groups:
+            if g.name == name:
+                g.add(int(item_id))
+                save_groups(self.groups)
+                break
+        return self.state()
+
+
+def _ids_key(ids: list[int] | None) -> tuple | None:
+    return None if ids is None else tuple(sorted(ids))
+
+
+def _failed(exc: Exception) -> str:
+    return f"Could not compute this: {type(exc).__name__}: {exc}"
