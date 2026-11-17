@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-The collector exists (HANDOVER section 9, steps 1 to 3). The GUI theme module and style sample exist (step 6.1, awaiting Jack's review); there are no pattern jobs or views yet. **`private/handover/HANDOVER.md` is the spec. Read it before you start any work.** Section 8b is the visual design, and section 9 is the order of work.
+The collector exists (HANDOVER section 9, steps 1 to 3). The GUI theme (step 6.1) and window frame (step 6.2: nav rail, filter bar, group editor, status strip) exist; the four views are placeholders listing the filtered items. There are no pattern jobs yet. **`private/handover/HANDOVER.md` is the spec. Read it before you start any work.** Section 8b is the visual design, and section 9 is the order of work.
 
 ## Commands
 
@@ -18,6 +18,7 @@ uv run ruff format .                      # format
 uv run python -m coppertrail.collector run            # one collector run into ./private (~40 min)
 uv run python -m coppertrail.collector --data-dir DIR run --max-items 3   # quick live smoke test
 uv run python -m coppertrail.collector gaps           # gap report for the latest watchlist
+uv run python -m coppertrail.ui                       # the GUI (--data-dir DIR for one session, --screenshot PNG)
 uv run python -m coppertrail.ui.sample                # GUI style sample window (--light, --screenshot PNG)
 ```
 
@@ -30,6 +31,10 @@ Collector notes:
 GUI notes:
 - PySide6 (`pyside6-essentials`) and pyqtgraph sit in the `gui` extra, pulled in by the dev group. The collector workflow runs `uv sync --no-dev`, so it does not install them.
 - `coppertrail/ui/`: `tokens.py` (design tokens), `theme.qss` (template filled with `str.format_map`), `theme.py` (fonts, `font(role)`, `color(token)`, `icon(name)`, `apply_theme`), `format.py` (coins, signed percent, dates; no Qt), `widgets.py` (Card, CoinLabel/CoinDelegate, ChangeDelegate, Dot, legend), `charts.py` (pyqtgraph styling).
+- `coppertrail/query/`: Qt-free query layer and user state. `catalog.py` (items with the latest snapshot price, archive status), `groups.py` (item groups: ids, name globs, exclusions; starter groups), `settings.py` (data folder and filters), `filtering.py` (apply filters, resolve the date range, clamped to the archive).
+- User settings and groups live in `%APPDATA%\Coppertrail` (or `~/.config/coppertrail`), never in the data repo. `$COPPERTRAIL_CONFIG` overrides the folder; tests use it.
+- `setStyleSheet` on the QApplication resets the Windows per-class fonts (Segoe UI in item views and menus), so `theme.apply_theme` sets class fonts after the stylesheet.
+- `::item` rules on a QTableView also hit QCalendarWidget's internal view and hide its date formats. Data tables carry `role="data"` and the row rules target only those.
 - QSS must not set `font-family`/`font-size` or `background` on plain `QWidget`: the first beats `setFont` (which breaks Almendra and the type scale), the second paints every layout container.
 - Caudex Regular has equal-width digits; Caudex Bold does not (narrow "1"), so keep numeric columns at weight 400. Caudex lacks ▲ ▼ ●: dots are painted (`Dot`), arrows come from the system fallback font (Segoe UI Symbol on Windows).
 

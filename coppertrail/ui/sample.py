@@ -51,6 +51,7 @@ from coppertrail.ui.widgets import (
     label,
     legend,
 )
+from coppertrail.ui.window import NavRail, StatusStrip, wordmark
 
 SWATCH_GROUPS = [
     ("Surfaces", ["bg0", "bg1", "surface", "raised", "overlay"]),
@@ -91,82 +92,6 @@ def _icon_button(text: str, icon_name: str, role: str = "") -> QPushButton:
     if role:
         b.setProperty("role", role)
     return b
-
-
-def wordmark(px: int = 17) -> QWidget:
-    w = QWidget()
-    lay = QHBoxLayout(w)
-    lay.setContentsMargins(0, 0, 0, 0)
-    lay.setSpacing(tokens.SPACE[1] + 2)
-    mark = QLabel()
-    mark.setPixmap(theme.app_icon().pixmap(30, 30))
-    lay.addWidget(mark)
-    name = QLabel(
-        f'<span style="color:{theme.palette_tokens()["accent"]}">Copper</span>'
-        f'<span style="color:{theme.palette_tokens()["text1"]}">trail</span>'
-    )
-    name.setFont(theme.font("display", px=px))
-    lay.addWidget(name)
-    lay.addStretch(1)
-    return w
-
-
-def nav_rail() -> QWidget:
-    rail = QWidget()
-    rail.setObjectName("NavRail")
-    rail.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-    rail.setFixedWidth(tokens.SIZES["nav_w"])
-    lay = QVBoxLayout(rail)
-    lay.setContentsMargins(12, 17, 12, 12)
-    lay.setSpacing(4)
-    lay.addWidget(wordmark())
-    lay.addSpacing(16)
-    group = QButtonGroup(rail)
-    for i, (text, ic) in enumerate(
-        [
-            ("Market overview", "overview"),
-            ("Item detail", "item"),
-            ("Patterns", "patterns"),
-            ("Movers && outliers", "movers"),
-        ]
-    ):
-        b = QPushButton(text)
-        b.setProperty("role", "nav")
-        b.setCheckable(True)
-        b.setChecked(i == 0)
-        b.setIcon(theme.icon(ic, "text2"))
-        b.setIconSize(QSize(18, 18))
-        group.addButton(b)
-        lay.addWidget(b)
-    lay.addStretch(1)
-    data = QPushButton("Data folder")
-    data.setProperty("role", "nav")
-    data.setIcon(theme.icon("folder", "text2"))
-    data.setIconSize(QSize(18, 18))
-    lay.addWidget(data)
-    return rail
-
-
-def status_strip() -> QWidget:
-    strip = QWidget()
-    strip.setObjectName("StatusStrip")
-    strip.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-    strip.setFixedHeight(tokens.SIZES["status_h"])
-    lay = QHBoxLayout(strip)
-    lay.setContentsMargins(16, 0, 16, 0)
-    lay.setSpacing(12)
-    lay.addWidget(Dot("rise"))
-    lay.addWidget(label("Data as of 16 Nov 2026, 08:42", "secondary", "small"))
-    pull = _icon_button("Pull latest data", "download", "link")
-    pull.setIcon(theme.icon("download", "accent"))
-    pull.setFont(theme.font("small"))
-    lay.addWidget(pull)
-    lay.addStretch(1)
-    credit = _icon_button("Prices from AHledger", "external", "link")
-    credit.setIcon(theme.icon("external", "accent"))
-    credit.setFont(theme.font("small"))
-    lay.addWidget(credit)
-    return strip
 
 
 def swatch_card() -> Card:
@@ -437,6 +362,7 @@ def table_card() -> Card:
         ("Devilsaur Leather", 31_010_000, -87.0, 140.0, 38),
     ]
     t = QTableWidget(len(rows), 5)
+    t.setProperty("role", "data")
     t.setHorizontalHeaderLabels(
         ["Item", "Lowest buyout", "Price change", "Supply change", "Sales/day"]
     )
@@ -452,6 +378,7 @@ def table_card() -> Card:
     hh = t.horizontalHeader()
     hh.setFont(theme.font("th"))
     hh.setHighlightSections(False)
+    hh.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
     hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
     for c in range(1, 5):
         hh.setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
@@ -526,7 +453,7 @@ class SampleWindow(QMainWindow):
         outer.setSpacing(0)
         body = QHBoxLayout()
         body.setSpacing(0)
-        body.addWidget(nav_rail())
+        body.addWidget(NavRail())
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -535,7 +462,10 @@ class SampleWindow(QMainWindow):
         scroll.setWidget(self.content)
         body.addWidget(scroll, 1)
         outer.addLayout(body, 1)
-        outer.addWidget(status_strip())
+        strip = StatusStrip()
+        strip.text.setText("Data as of 16 Nov 2026, 08:42")
+        strip.dot_stale.hide()
+        outer.addWidget(strip)
         self.setCentralWidget(central)
 
 

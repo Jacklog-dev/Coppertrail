@@ -24,6 +24,7 @@ QLabel[role="small"] {{ color: {text3}; font-size: 12px; }}
 QLabel[role="legend"] {{ color: {text2}; font-size: 12px; }}
 QLabel[role="secondary"] {{ color: {text2}; }}
 QLabel[role="accent"] {{ color: {accent}; }}
+QLabel[role="attention"] {{ color: {attention}; }}
 QLabel[role="rise"] {{ color: {rise}; }}
 QLabel[role="fall"] {{ color: {fall}; }}
 QLabel[role="chip"] {{ background: {raised}; color: {text2}; border: 1px solid {border};
@@ -58,11 +59,36 @@ QPushButton[role="link"]:hover {{ color: {accentHover}; }}
 QPushButton[role="segment"] {{ border-radius: 0; padding: 0 12px; color: {text2}; }}
 QPushButton[role="segment"]:checked {{ background: {accentMuted}; color: {accent}; border-color: {accent}; }}
 
+QPushButton[role="field"] {{ padding: 0; text-align: left; }}
+QPushButton[role="chip"] {{ background: {raised}; color: {text1}; border: 1px solid {border};
+                           border-radius: 11px; min-height: 22px; max-height: 22px; padding: 0 9px; }}
+QPushButton[role="chip"]:checked {{ background: {accentMuted}; color: {accent}; border-color: {accent}; }}
+
+QDialog QFrame[role="pane"] {{ background: transparent; border: 0; }}
+QDialog QListWidget, QDialog QTableWidget, QDialog QHeaderView, QDialog QHeaderView::section {{
+    background: {overlay}; }}
+QListWidget::item {{ border-radius: 3px; padding: 0 6px; }}
+QListWidget::item:selected {{ color: {accent}; }}
+
+QFrame[role="popover"] {{ background: {overlay}; border: 1px solid {borderStrong}; border-radius: 6px; }}
+QFrame[role="popover"] QListWidget {{ background: {overlay}; border: 0; }}
+QFrame[role="popover"] QListWidget::item:hover {{ background: {raised}; }}
+
+QCalendarWidget QWidget#qt_calendar_navigationbar {{ background: {overlay}; }}
+QCalendarWidget QToolButton {{ background: transparent; color: {text1}; border: 0; padding: 2px 6px; }}
+QCalendarWidget QToolButton:hover {{ background: {raised}; border-radius: 3px; }}
+QCalendarWidget QToolButton::menu-indicator {{ image: none; width: 0; }}
+QCalendarWidget QAbstractItemView {{ background: {overlay}; color: {text1}; outline: 0;
+                                    selection-background-color: {accent}; selection-color: {accentOn}; }}
+QCalendarWidget QAbstractItemView:disabled {{ color: {textDis}; }}
+QCalendarWidget QSpinBox {{ min-height: 22px; }}
+QAbstractSpinBox QLineEdit {{ background: transparent; border: 0; padding: 0 9px; min-height: 0; }}
+
 QComboBox::drop-down {{ border: 0; width: 20px; }}
 QComboBox QAbstractItemView {{ background: {overlay}; border: 1px solid {borderStrong};
                               selection-background-color: {accentMuted}; selection-color: {accent};
                               outline: 0; }}
-QSpinBox::up-button, QSpinBox::down-button {{ width: 0; border: 0; }}
+QAbstractSpinBox::up-button, QAbstractSpinBox::down-button {{ width: 0; border: 0; }}
 
 QCheckBox {{ spacing: 8px; }}
 QCheckBox::indicator {{ width: 14px; height: 14px; border: 1px solid {borderStrong};
@@ -83,9 +109,11 @@ QTabBar::tab:selected {{ color: {text1}; border-bottom-color: {accent}; font-wei
 QTableView, QTableWidget, QListWidget {{ background: {surface}; border: 0; gridline-color: {grid};
              alternate-background-color: {surface}; outline: 0;
              selection-background-color: {accentMuted}; }}
-QTableView::item {{ border-bottom: 1px solid {grid}; padding: 0 10px; }}
-QTableView::item:hover, QListWidget::item:hover {{ background: {raised}; }}
-QTableView::item:selected, QListWidget::item:selected {{ background: {accentMuted}; }}
+/* Row rules only for data tables (role="data"): QCalendarWidget is a QTableView too, and any
+   ::item rule there hides its per-date formats (the selected range). */
+QTableView[role="data"]::item {{ border-bottom: 1px solid {grid}; padding: 0 10px; }}
+QTableView[role="data"]::item:hover, QListWidget::item:hover {{ background: {raised}; }}
+QTableView[role="data"]::item:selected, QListWidget::item:selected {{ background: {accentMuted}; }}
 QHeaderView {{ background: {surface}; border: 0; }}
 QHeaderView::section {{ background: {surface}; color: {text3}; border: 0;
                        border-bottom: 1px solid {border}; padding: 0 10px 8px; font-size: 13px; }}

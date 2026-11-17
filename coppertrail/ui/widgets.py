@@ -195,19 +195,25 @@ class Card(QFrame):
         outer.setSpacing(tokens.SPACE[2])
         self.header = QHBoxLayout()
         self.header.setSpacing(tokens.SPACE[1])
-        if title or subtitle:
-            heads = QVBoxLayout()
-            heads.setSpacing(2)
-            if title:
-                heads.addWidget(label(title, "cardTitle", "title"))
-            if subtitle:
-                heads.addWidget(label(subtitle, "sub", "sub"))
-            self.header.addLayout(heads)
-            self.header.addStretch(1)
-            outer.addLayout(self.header)
+        heads = QVBoxLayout()
+        heads.setSpacing(2)
+        self.title_label = label(title, "cardTitle", "title")
+        self.subtitle_label = label(subtitle, "sub", "sub")
+        heads.addWidget(self.title_label)
+        heads.addWidget(self.subtitle_label)
+        self.title_label.setVisible(bool(title))
+        self.subtitle_label.setVisible(bool(subtitle))
+        self.header.addLayout(heads)
+        self.header.addStretch(1)
+        outer.addLayout(self.header)
         self.body = QVBoxLayout()
         self.body.setSpacing(tokens.SPACE[2])
         outer.addLayout(self.body, 1)
+
+    def set_subtitle(self, text: str) -> None:
+        """Card subtitles are the date range and at most one fact (HANDOVER 8b)."""
+        self.subtitle_label.setText(text)
+        self.subtitle_label.setVisible(bool(text))
 
 
 class Dot(QWidget):

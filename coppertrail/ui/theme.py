@@ -23,6 +23,30 @@ QSS_TEMPLATE = UI_DIR / "theme.qss"
 
 _active: dict[str, str] = tokens.DARK
 
+PLATFORM_FONT_CLASSES = (
+    "QAbstractItemView",
+    "QHeaderView",
+    "QMenu",
+    "QMenuBar",
+    "QToolTip",
+    "QListView",
+    "QTableView",
+    "QTreeView",
+    "QComboBox",
+    "QLineEdit",
+    "QAbstractSpinBox",
+    "QCalendarWidget",
+    "QAbstractButton",
+    "QLabel",
+    "QTabBar",
+    "QMessageBox",
+    "QDockWidget",
+    "QStatusBar",
+    "QGroupBox",
+    "QWorkspaceTitleBar",
+    "QTipLabel",
+)
+
 
 def palette_tokens() -> dict[str, str]:
     """The token set currently applied (DARK unless `apply_theme` got LIGHT)."""
@@ -187,7 +211,13 @@ def apply_theme(app: QApplication, tok: dict[str, str] | None = None) -> None:
     load_fonts()
     app.setStyle("Fusion")  # predictable base for QSS on every platform
     app.setPalette(_palette(_active))
-    app.setFont(font("body"))
     app.setStyleSheet(stylesheet(_active))
+    body = font("body")
+    app.setFont(body)
+    # The Windows platform theme assigns its own fonts per class (Segoe UI for item views,
+    # menus, tooltips, ...). Override them, and only after setStyleSheet, which restores
+    # the platform's class fonts.
+    for cls in PLATFORM_FONT_CLASSES:
+        app.setFont(body, cls)
     app.setWindowIcon(app_icon())
     configure_charts(_active)
