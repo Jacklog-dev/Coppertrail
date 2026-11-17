@@ -5,9 +5,20 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
 <title>Coppertrail</title>
 <link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="stylesheet" href="css/frame.css">
+<link rel="stylesheet" href="vendor/uPlot.min.css">
 </head>
 <body>
-<div id="app">Coppertrail</div>
+<div class="app" id="app">
+  <nav class="navrail" id="navrail" aria-label="Views"></nav>
+  <div class="main">
+    <div class="filterbar" id="filterbar" role="toolbar" aria-label="Filters"></div>
+    <main class="view" id="view"></main>
+  </div>
+  <footer class="statusstrip" id="statusstrip"></footer>
+</div>
 <script type="module" src="js/main.js"></script>
 </body>
 </html>
