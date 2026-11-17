@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -13,8 +14,17 @@ DEFAULT_DATA_DIR = Path("private")
 
 
 def default_data_dir() -> Path:
-    """`$COPPERTRAIL_DATA`, else `./private` (same rule as the collector CLI)."""
-    return Path(os.environ.get("COPPERTRAIL_DATA", DEFAULT_DATA_DIR))
+    """`$COPPERTRAIL_DATA`, else `./private` (same rule as the collector CLI).
+
+    The frozen Windows build has no meaningful working directory (a double-click starts it
+    wherever), so there `./private` means the `private` folder next to the .exe. A missing
+    folder just shows the empty state; the folder picker in the app chooses a real one.
+    """
+    if env := os.environ.get("COPPERTRAIL_DATA"):
+        return Path(env)
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent / DEFAULT_DATA_DIR
+    return DEFAULT_DATA_DIR
 
 
 @dataclass(frozen=True)

@@ -11,6 +11,18 @@ a desktop app (pywebview with an HTML/CSS front end and uPlot charts).
 uv run python -m coppertrail.ui --data-dir path/to/your/private/data
 ```
 
+### Windows executable
+
+```bash
+uv sync
+uv run python scripts/build_exe.py
+```
+
+This builds a single `dist/Coppertrail.exe` (about 80 MB) with PyInstaller. It
+contains the app and its web front end, no market data. On first start, choose
+your data folder in the app (or put the data clone in a `private` folder next to
+the exe). Edge WebView2 must be installed; Windows 11 ships it.
+
 ## Collector
 
 Needs [uv](https://docs.astral.sh/uv/) (Python 3.12).

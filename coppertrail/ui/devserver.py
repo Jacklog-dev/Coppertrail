@@ -8,6 +8,7 @@ bridge method of that name, if the bridge lists it in `EXPOSED`. The page uses i
 from __future__ import annotations
 
 import json
+import sys
 import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -16,7 +17,15 @@ from urllib.parse import unquote, urlsplit
 
 from coppertrail.ui.bridge import Bridge
 
-WEB_DIR = Path(__file__).parent / "web"
+
+def web_dir() -> Path:
+    """`web/` next to this module, or inside the PyInstaller bundle when frozen."""
+    if bundle := getattr(sys, "_MEIPASS", None):
+        return Path(bundle) / "coppertrail" / "ui" / "web"
+    return Path(__file__).parent / "web"
+
+
+WEB_DIR = web_dir()
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".js": "text/javascript; charset=utf-8",

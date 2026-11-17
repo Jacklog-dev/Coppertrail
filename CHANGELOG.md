@@ -15,3 +15,4 @@
 - Pattern jobs (all 12): daily rhythm, weekday and raid reset, mispricings, supply shocks, buyouts, mean reversion, processing spreads, progression wave, correlated items, vendor floor, build effects, inflation index
 - Patterns that lack history show when they will be ready
 - GUI: Market overview and Item detail views on real data
+- Windows build: single `Coppertrail.exe` (PyInstaller), no data bundled; workflow attaches it to tagged releases
