@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The collector exists (HANDOVER section 9, steps 1 to 3). The GUI theme (step 6.1) and window frame (step 6.2: nav rail, filter bar, group editor, status strip) exist, rebuilt on pywebview + HTML/CSS/JS on 2026-11-17 (no Qt, see `docs/superpowers/specs/2026-11-17-webview-gui-design.md`); the four views are still placeholders, but the states from 8b (no data, stale, no match, loading, pull failed, too little history), both breakpoints and the chart building blocks exist (`docs/superpowers/specs/2026-11-17-gui-groundwork-design.md`). The series query layer, the pattern contract and CLI, the section 5 baseline (step 4) and pattern jobs 1, 3, 4, 5, 8 and 12 exist (`docs/superpowers/specs/2026-11-17-patterns-batch-a.md`). Own scans: research only, `docs/own-scans-research.md`. The plan for the rest is `docs/superpowers/plans/2026-11-17-complete-the-app.md`: parallel sessions with file ownership (collector / patterns / ui); `query/`, CLAUDE.md and README stay with the coordinating session. **`private/handover/HANDOVER.md` is the spec. Read it before you start any work.** Section 8b is the visual design, and section 9 is the order of work.
 
+## Changelog
+
+Every push to `main` adds its changes to `CHANGELOG.md`: short bullet points only, no prose, no dates. Bullets go under the current version heading (`## 0.0.1 [Core]`); start a new version heading only when Jack names one.
+
 ## Commands
 
 The toolchain is [uv](https://docs.astral.sh/uv/) with Python 3.12 (pinned in `.python-version`).
