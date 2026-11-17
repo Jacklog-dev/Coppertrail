@@ -12,8 +12,15 @@ dependencies = [
     "tzdata",
 ]
 
+[project.optional-dependencies]
+gui = [
+    "pyqtgraph>=0.13",
+    "pyside6-essentials>=6.7",
+]
+
 [dependency-groups]
 dev = [
+    "coppertrail[gui]",
     "pytest>=8",
     "ruff>=0.6",
 ]
@@ -34,3 +41,6 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.uv.sources]
+coppertrail = { workspace = true }

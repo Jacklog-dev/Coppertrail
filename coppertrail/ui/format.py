@@ -1,0 +1,111 @@
+"""Display formatting from HANDOVER 8b "Data display conventions".
+
+Pure functions without Qt, so views, tables and tests share one implementation.
+Prices are integers in copper (1g = 100s = 10,000c), as stored by the collector.
+"""
+
+from __future__ import annotations
+
+from datetime import date, datetime
+from typing import Literal
+from zoneinfo import ZoneInfo
+
+from coppertrail.ui.tokens import COIN
+
+MINUS = "−"  # real minus sign, never a hyphen
+RISE = "▲"  # black up-pointing triangle
+FALL = "▼"  # black down-pointing triangle
+LOCAL_TZ = ZoneInfo("Europe/Berlin")  # CET/CEST, the display time zone
+
+# Month names fixed in English: strftime month names follow the process
+# locale, which QApplication sets from the system.
+MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+Unit = Literal["g", "s", "c"]
+Direction = Literal["rise", "fall", "flat"]
+
+
+def coin_parts(copper: int) -> list[tuple[int, Unit]]:
+    """Split a price into (amount, unit) pairs, zero units omitted.
+
+    From 100 gold on, only gold is shown (rounded): the "short form" `3,101●`.
+    A price of zero is `0c`.
+    """
+    if copper < 0:
+        raise ValueError("prices are never negative")
+    gold, rest = divmod(copper, 10_000)
+    if gold >= COIN["short_from_gold"]:
+        return [(round(copper / 10_000), "g")]
+    silver, cop = divmod(rest, 100)
+    parts: list[tuple[int, Unit]] = [
+        (n, u) for n, u in ((gold, "g"), (silver, "s"), (cop, "c")) if n
+    ]
+    return parts or [(0, "c")]
+
+
+def coins_text(copper: int) -> str:
+    """Letter form for axes and plain text: `12g 67s 5c`, `1g 50s`, `3,101g`."""
+    return " ".join(f"{n:,}{u}" for n, u in coin_parts(copper))
+
+
+def thousands(n: int) -> str:
+    """`9,063`."""
+    return f"{n:,}"
+
+
+def count(n: float) -> str:
+    """Counts: comma separated, from one million as `1.61 M`."""
+    if abs(n) >= 1_000_000:
+        return f"{n / 1_000_000:.3g} M"
+    return f"{round(n):,}"
+
+
+def direction(value: float) -> Direction:
+    if value > 0:
+        return "rise"
+    if value < 0:
+        return "fall"
+    return "flat"
+
+
+def signed_number(value: float, decimals: int = 0) -> str:
+    """`+12`, `−3.5`, `0` with a real minus sign."""
+    text = f"{abs(value):,.{decimals}f}"
+    if float(text.replace(",", "")) == 0:
+        return text
+    return ("+" if value > 0 else MINUS) + text
+
+
+def percent_change(pct: float) -> tuple[str, Direction]:
+    """Signed change with arrow: `▲ +14.2 %`, `▼ −87 %`, `± 0.0 %`.
+
+    One decimal below 50 %, none from 50 % on. Returns the text and the
+    direction, so the caller picks the `rise`/`fall` colour; the arrow and sign
+    carry the meaning on their own (never colour alone).
+    """
+    decimals = 1 if abs(pct) < 50 else 0
+    rounded = round(pct, decimals)
+    if rounded == 0:
+        return f"± {0:.{decimals}f} %", "flat"
+    arrow = RISE if rounded > 0 else FALL
+    return f"{arrow} {signed_number(rounded, decimals)} %", direction(rounded)
+
+
+def local_datetime(ts: datetime) -> str:
+    """`16 Nov 2026, 08:42` in local time (naive datetimes are taken as UTC)."""
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=ZoneInfo("UTC"))
+    loc = ts.astimezone(LOCAL_TZ)
+    return f"{day(loc)}, {loc:%H:%M}"
+
+
+def day(d: date) -> str:
+    """`16 Nov 2026`."""
+    return f"{d.day} {MONTHS[d.month - 1]} {d.year}"
+
+
+def date_range(start: date, end: date) -> str:
+    """`17 Oct – 16 Nov 2026`; the year is repeated only when it differs."""
+    same_year = start.year == end.year
+    left = f"{start.day} {MONTHS[start.month - 1]}" if same_year else day(start)
+    return f"{left} – {day(end)}"

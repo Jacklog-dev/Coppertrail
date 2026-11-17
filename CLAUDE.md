@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-The collector exists (HANDOVER section 9, steps 1 to 3). There are no pattern jobs and no GUI yet. **`private/handover/HANDOVER.md` is the spec. Read it before you start any work.** Section 8b is the visual design, and section 9 is the order of work.
+The collector exists (HANDOVER section 9, steps 1 to 3). The GUI theme module and style sample exist (step 6.1, awaiting Jack's review); there are no pattern jobs or views yet. **`private/handover/HANDOVER.md` is the spec. Read it before you start any work.** Section 8b is the visual design, and section 9 is the order of work.
 
 ## Commands
 
@@ -18,6 +18,7 @@ uv run ruff format .                      # format
 uv run python -m coppertrail.collector run            # one collector run into ./private (~40 min)
 uv run python -m coppertrail.collector --data-dir DIR run --max-items 3   # quick live smoke test
 uv run python -m coppertrail.collector gaps           # gap report for the latest watchlist
+uv run python -m coppertrail.ui.sample                # GUI style sample window (--light, --screenshot PNG)
 ```
 
 Collector notes:
@@ -25,6 +26,12 @@ Collector notes:
 - Exit codes: 0 ok or partial, 1 failed, 2 another run holds the lock, 3 the `API_ARCHIVE_UNTIL` cutoff was reached or archiving is disabled.
 - Each fetched item is staged in `<data-dir>/.staging/<run_id>/` and merged into the day files at the end of the run. Rerunning after a crash resumes the run, as long as it started within the last 12 h.
 - Day-file tables: `hourly`, `scans`, `snapshot`, `economy`, `items`, `watchlist`, `runs`, `gaps`, `population`. Logs go to `<data-dir>/logs/`.
+
+GUI notes:
+- PySide6 (`pyside6-essentials`) and pyqtgraph sit in the `gui` extra, pulled in by the dev group. The collector workflow runs `uv sync --no-dev`, so it does not install them.
+- `coppertrail/ui/`: `tokens.py` (design tokens), `theme.qss` (template filled with `str.format_map`), `theme.py` (fonts, `font(role)`, `color(token)`, `icon(name)`, `apply_theme`), `format.py` (coins, signed percent, dates; no Qt), `widgets.py` (Card, CoinLabel/CoinDelegate, ChangeDelegate, Dot, legend), `charts.py` (pyqtgraph styling).
+- QSS must not set `font-family`/`font-size` or `background` on plain `QWidget`: the first beats `setFont` (which breaks Almendra and the type scale), the second paints every layout container.
+- Caudex Regular has equal-width digits; Caudex Bold does not (narrow "1"), so keep numeric columns at weight 400. Caudex lacks ▲ ▼ ●: dots are painted (`Dot`), arrows come from the system fallback font (Segoe UI Symbol on Windows).
 
 ## Verified API facts (2026-11-16)
 
@@ -65,7 +72,6 @@ These are unconfirmed in the handover:
 
 - Price table columns 5 to 8, and the fields of a `range=24h` point: verified 2026-11-16, see above.
 - Whether `/api/catalog` provides subclasses.
-- Whether Caudex has tabular figures.
 - Current GitHub free-tier minutes.
 - AHledger's terms (https://ahledger.com/developers).
 
