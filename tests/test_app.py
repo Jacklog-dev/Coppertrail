@@ -55,3 +55,76 @@ def test_pull_runs_in_background_and_emits(archive, config_dir):
     assert event == "pull" and payload["ok"] is False
     assert payload["message"] == "The data folder is not a git clone"
     assert payload["state"]["items"]["total"] == 9
+
+
+def test_pull_always_reports_even_if_reload_fails(monkeypatch, archive, config_dir):
+    # final review, Important 2: a failing state() must not leave the UI at "Pulling…"
+    from coppertrail.ui.pull import PullResult
+
+    monkeypatch.setattr(
+        "coppertrail.ui.app.run_pull", lambda d: PullResult(True, "Pulled latest data", "")
+    )
+    events = []
+    api = AppApi(archive, emit=lambda event, payload: events.append((event, payload)))
+
+    def boom():
+        raise RuntimeError("schema changed")
+
+    monkeypatch.setattr(api, "state", boom)
+    api.pull_latest()
+    api.wait_for_pull(timeout=10)
+    (event, payload), *_ = events
+    assert event == "pull" and payload["ok"] is False
+    assert "schema changed" in payload["detail"]
+
+
+def test_pull_reload_waits_for_the_bridge_lock(monkeypatch, archive, config_dir):
+    # final review, Important 3: the worker reloads under the same lock as JS calls
+    from coppertrail.ui.pull import PullResult
+
+    monkeypatch.setattr(
+        "coppertrail.ui.app.run_pull", lambda d: PullResult(True, "Pulled latest data", "")
+    )
+    events = []
+    api = AppApi(archive, emit=lambda event, payload: events.append((event, payload)))
+    with api.lock:
+        api.pull_latest()
+        api.wait_for_pull(timeout=0.3)
+        assert events == []
+    api.wait_for_pull(timeout=10)
+    assert events and events[0][1]["ok"] is True
+
+
+def test_pull_skips_reload_when_folder_changed(monkeypatch, archive, tmp_path, config_dir):
+    from coppertrail.ui.pull import PullResult
+
+    api = AppApi(archive, emit=lambda event, payload: events.append((event, payload)))
+    other = tmp_path / "other"
+    other.mkdir()
+
+    def pull(d):
+        api.data_dir = other  # the user picked another folder while git ran
+        return PullResult(True, "Pulled latest data", "")
+
+    monkeypatch.setattr("coppertrail.ui.app.run_pull", pull)
+    events = []
+    loads = []
+    monkeypatch.setattr(api, "_load", lambda: loads.append(1))
+    api.pull_latest()
+    api.wait_for_pull(timeout=10)
+    assert loads == []
+    assert events[0][1]["ok"] is False
+    assert events[0][1]["message"] == "Pull finished, but the data folder changed meanwhile"
+
+
+def test_js_facade_uses_the_bridge_lock(archive, config_dir):
+    import threading
+
+    api = AppApi(archive, emit=lambda *a: None)
+    facade = js_facade(api)
+    done = threading.Event()
+    with api.lock:
+        t = threading.Thread(target=lambda: (facade.state(), done.set()))
+        t.start()
+        assert not done.wait(0.3)
+    assert done.wait(10)

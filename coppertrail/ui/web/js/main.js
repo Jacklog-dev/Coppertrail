@@ -24,12 +24,17 @@ function selectView(id) {
 }
 
 async function chooseDataFolder() {
-  if (await inApp()) {
-    render(await call("pick_data_folder"));
-    return;
+  try {
+    if (await inApp()) {
+      render(await call("pick_data_folder"));
+      return;
+    }
+    const path = window.prompt("Data folder (dev mode)", state.dataDir);
+    if (path) render(await call("set_data_dir", path));
+  } catch (err) {
+    ui.error = { message: "Could not open that folder", detail: String(err) };
+    render();
   }
-  const path = window.prompt("Data folder (dev mode)", state.dataDir);
-  if (path) render(await call("set_data_dir", path));
 }
 
 function finishPull(result) {

@@ -25,18 +25,33 @@ const ui = {
   groupSearch: "",
   month: null, // "YYYY-MM" shown in the calendar
   pending: null, // first calendar click
+  searchText: null, // typed but not saved yet: wins over state.filters.search
 };
 let ctx = null; // {container, state, onState}
 let searchTimer = null;
 
-async function change(partial) {
-  ctx.onState(await call("set_filters", partial));
+// Filter changes go to the bridge one at a time, in order, so the saved filters are always
+// the last ones sent; only the newest response is rendered.
+let queue = Promise.resolve();
+let sent = 0;
+function send(name, ...args) {
+  const mine = ++sent;
+  const reply = queue.then(() => call(name, ...args));
+  queue = reply.catch(() => {});
+  return reply.then((next) => {
+    if (mine === sent) ctx.onState(next);
+  });
 }
 
-async function reset() {
+const change = (partial) => send("set_filters", partial);
+
+function reset() {
   ui.open = null;
+  ui.searchText = null;
+  clearTimeout(searchTimer);
+  searchTimer = null;
   closePopover(false);
-  ctx.onState(await call("reset_filters"));
+  return send("reset_filters");
 }
 
 function editGroups(newGroup = false) {
@@ -270,12 +285,17 @@ export function render(container, state, onState) {
   );
 
   const searchInput = el("input", {
-    attrs: { type: "search", placeholder: "Search items", value: f.search, "data-focus": "search", "aria-label": "Search items" },
+    attrs: { type: "search", placeholder: "Search items", value: ui.searchText ?? f.search, "data-focus": "search", "aria-label": "Search items" },
     on: {
       input: (e) => {
         clearTimeout(searchTimer);
         const text = e.target.value;
-        searchTimer = setTimeout(() => change({ search: text }), SEARCH_DELAY_MS);
+        ui.searchText = text; // re-renders before the save keep what was typed
+        searchTimer = setTimeout(async () => {
+          searchTimer = null;
+          await change({ search: text });
+          if (searchTimer === null && ui.searchText === text) ui.searchText = null;
+        }, SEARCH_DELAY_MS);
       },
     },
   });

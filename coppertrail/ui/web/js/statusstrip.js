@@ -7,8 +7,9 @@ import { icon } from "./icons.js";
  */
 export function render(container, state, { pulling, error, onPull, onCredit }) {
   const st = state.status;
-  const dot = st.empty ? null : el("span", { class: "dot " + (st.stale ? "attention" : "rise") });
-  const text = el("span", { class: st.stale ? "attention" : "", text: st.text });
+  const warn = st.stale || st.error;
+  const dot = st.empty && !st.error ? null : el("span", { class: "dot " + (warn ? "attention" : "rise") });
+  const text = el("span", { class: warn ? "attention" : "", text: st.text, attrs: { title: st.errorDetail || false } });
   const pull = el(
     "button",
     {

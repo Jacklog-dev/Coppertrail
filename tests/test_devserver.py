@@ -86,3 +86,25 @@ def test_dev_marker(server):
     # api.js asks this to tell the dev server from pywebview's own file server.
     with urlopen(server + "api", timeout=5) as resp:
         assert json.loads(resp.read().decode("utf-8")) == {"dev": True}
+
+
+def test_rejects_non_json_posts(server):  # final review, Important 5: no CSRF via text/plain
+    req = Request(server + "api/state", data=b'{"args": []}', method="POST")
+    req.add_header("Content-Type", "text/plain")
+    with pytest.raises(HTTPError) as err:
+        urlopen(req, timeout=5)
+    assert err.value.code == 403
+
+
+def test_rejects_foreign_host(server):  # DNS rebinding
+    req = Request(server + "api/state", data=b'{"args": []}', method="POST")
+    req.add_header("Content-Type", "application/json")
+    req.add_header("Host", "evil.example:80")
+    with pytest.raises(HTTPError) as err:
+        urlopen(req, timeout=5)
+    assert err.value.code == 403
+    get = Request(server + "index.html")
+    get.add_header("Host", "evil.example")
+    with pytest.raises(HTTPError) as err:
+        urlopen(get, timeout=5)
+    assert err.value.code == 403

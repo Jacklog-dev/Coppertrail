@@ -148,3 +148,26 @@ def test_pull_on_non_clone_reports(archive, config_dir):
 def test_exposed_methods_exist():
     for name in Bridge.EXPOSED:
         assert callable(getattr(Bridge, name)) and not name.startswith("_")
+
+
+def _corrupt_folder(tmp_path):
+    bad = tmp_path / "bad"
+    (bad / "items").mkdir(parents=True)
+    (bad / "items" / "2026-11-16.parquet").write_bytes(b"not a parquet file")
+    return bad
+
+
+def test_unreadable_folder_does_not_raise(tmp_path, config_dir):  # final review, Important 1
+    bridge = Bridge(_corrupt_folder(tmp_path))
+    st = bridge.state()
+    assert st["items"]["total"] == 0
+    assert st["status"]["text"].startswith("Could not read this data folder")
+    assert st["status"]["error"] is True
+
+
+def test_choosing_unreadable_folder_keeps_app_startable(archive, tmp_path, config_dir):
+    bridge = Bridge()
+    st = bridge.set_data_dir(str(_corrupt_folder(tmp_path)))
+    assert st["status"]["error"] is True
+    Bridge()  # the next start reads the saved (bad) folder and must still open
+    assert Bridge(archive).state()["status"]["error"] is False

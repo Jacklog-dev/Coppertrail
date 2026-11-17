@@ -46,7 +46,7 @@ def _static_file(url_path: str) -> Path | None:
 
 def _handler(bridge: Bridge) -> type[BaseHTTPRequestHandler]:
     exposed = frozenset(type(bridge).EXPOSED)
-    lock = threading.Lock()  # the bridge is not thread-safe; one call at a time
+    lock = bridge.lock  # the bridge is not thread-safe; one call at a time
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format, *args):  # noqa: A002
@@ -64,7 +64,17 @@ def _handler(bridge: Bridge) -> type[BaseHTTPRequestHandler]:
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self._send(status, body, CONTENT_TYPES[".json"])
 
+        def _foreign(self) -> bool:
+            """Refuse other Host names (DNS rebinding) with 403."""
+            port = self.server.server_address[1]
+            if self.headers.get("Host") in {f"127.0.0.1:{port}", f"localhost:{port}"}:
+                return False
+            self._send(HTTPStatus.FORBIDDEN, b"forbidden", CONTENT_TYPES[".txt"])
+            return True
+
         def do_GET(self):  # noqa: N802
+            if self._foreign():
+                return
             if urlsplit(self.path).path == "/api":
                 self._json(HTTPStatus.OK, {"dev": True})  # api.js: "not inside pywebview"
                 return
@@ -75,6 +85,13 @@ def _handler(bridge: Bridge) -> type[BaseHTTPRequestHandler]:
             self._send(HTTPStatus.OK, target.read_bytes(), CONTENT_TYPES[target.suffix.lower()])
 
         def do_POST(self):  # noqa: N802
+            if self._foreign():
+                return
+            # JSON only: a cross-site page cannot send it without a CORS preflight, which
+            # this server never answers.
+            if not (self.headers.get("Content-Type") or "").startswith("application/json"):
+                self._send(HTTPStatus.FORBIDDEN, b"forbidden", CONTENT_TYPES[".txt"])
+                return
             path = urlsplit(self.path).path
             name = path.removeprefix("/api/") if path.startswith("/api/") else ""
             if name not in exposed:

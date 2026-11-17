@@ -7,6 +7,7 @@ serve it over a 127.0.0.1 HTTP server (`devserver.py`). Display strings are form
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -29,6 +30,7 @@ from coppertrail.ui.pull import NOT_A_CLONE, can_pull, run_pull
 AHLEDGER_URL = "https://ahledger.com"
 STALE_AFTER_DAYS = 2
 PREVIEW_ROWS = 300
+UNREADABLE = "Could not read this data folder"
 SEARCH_ROWS = 50
 
 
@@ -93,6 +95,9 @@ class Bridge:
     ) -> None:
         # `data_dir` is a session override (`--data-dir`): it is never written to settings.
         self._now = now or (lambda: datetime.now(UTC))
+        # Held by every JS call (app facade, dev server) and by the pull worker's reload.
+        self.lock = threading.RLock()
+        self.load_error = ""
         self._settings = load_settings()
         if data_dir is not None:
             self.data_dir = Path(data_dir)
@@ -106,11 +111,20 @@ class Bridge:
     # Loading -----------------------------------------------------------------
 
     def _load(self) -> None:
+        # Any failure (unreadable or foreign parquet, DuckDB errors) leaves an empty archive
+        # and an error in the status strip; it must never stop the app from opening.
         try:
-            self.items: list[Item] = load_items(self.data_dir)
-            self.status: ArchiveStatus = archive_status(self.data_dir)
-        except OSError:
-            self.items, self.status = [], ArchiveStatus(None, None, None)
+            items, status = load_items(self.data_dir), archive_status(self.data_dir)
+            error = ""
+        except Exception as exc:  # noqa: BLE001
+            items, status, error = (
+                [],
+                ArchiveStatus(None, None, None),
+                f"{type(exc).__name__}: {exc}",
+            )
+        self.items: list[Item] = items
+        self.status: ArchiveStatus = status
+        self.load_error = error
 
     @property
     def filters(self) -> Filters:
@@ -126,7 +140,9 @@ class Bridge:
         st = self.status
         age = st.age_days(self._now())
         stale = age is not None and age > STALE_AFTER_DAYS
-        if st.as_of is None:
+        if self.load_error:
+            text = UNREADABLE
+        elif st.as_of is None:
             text = "No data yet"
         elif stale:
             text = f"Data is {int(age)} days old · as of {fmt.local_datetime(st.as_of)}"
@@ -136,6 +152,8 @@ class Bridge:
         return {
             "text": text,
             "stale": stale,
+            "error": bool(self.load_error),
+            "errorDetail": self.load_error,
             "empty": st.empty,
             "canPull": pullable,
             "pullHint": "" if pullable else NOT_A_CLONE,

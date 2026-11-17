@@ -24,6 +24,8 @@ from coppertrail.ui.devserver import WEB_DIR, serve
 from coppertrail.ui.pull import run_pull
 
 Emit = Callable[[str, dict], None]
+FOLDER_CHANGED = "Pull finished, but the data folder changed meanwhile"
+PULL_CRASHED = "Pull failed · the data could not be reloaded"
 
 
 def gui_backend(platform: str = sys.platform) -> str | None:
@@ -72,11 +74,31 @@ class AppApi(Bridge):
         if self._pull_thread is not None and self._pull_thread.is_alive():
             return {"started": False}
 
+        folder = self.data_dir
+
         def work() -> None:
-            result = run_pull(self.data_dir)
-            if result.ok:
-                self._load()
-            self._emit("pull", {**asdict(result), "state": self.state()})
+            # Always emits, so the page never stays at "Pulling…". git runs unlocked; the
+            # reload and state() hold the bridge lock, like every JS call.
+            try:
+                result = asdict(run_pull(folder))
+                with self.lock:
+                    if result["ok"] and self.data_dir != folder:
+                        result = {**result, "ok": False, "message": FOLDER_CHANGED}
+                    elif result["ok"]:
+                        self._load()
+                    payload = {**result, "state": self.state()}
+            except Exception as exc:  # noqa: BLE001
+                payload = {
+                    "ok": False,
+                    "message": PULL_CRASHED,
+                    "detail": f"{type(exc).__name__}: {exc}",
+                }
+                try:
+                    with self.lock:
+                        payload["state"] = self.state()
+                except Exception:  # noqa: BLE001
+                    pass
+            self._emit("pull", payload)
 
         self._pull_thread = threading.Thread(target=work, daemon=True)
         self._pull_thread.start()
@@ -93,7 +115,7 @@ def js_facade(api: Bridge) -> Any:
     pywebview exposes every public attribute of `js_api` (and walks nested objects), so the
     bridge itself would leak its item lists. Calls arrive on pywebview threads; one at a time.
     """
-    lock = threading.Lock()
+    lock = api.lock  # shared with the pull worker
 
     def wrap(name: str):
         method = getattr(api, name)
