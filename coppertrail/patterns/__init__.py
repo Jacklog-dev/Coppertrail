@@ -2,12 +2,18 @@
 
 # Job modules register themselves on import; add each new one here.
 from coppertrail.patterns import (  # noqa: F401, E402
+    builds,
     buyouts,
+    correlations,
     inflation,
     mispricings,
     progression,
+    reversion,
     rhythm,
+    spreads,
     supply,
+    vendor,
+    weekday,
 )
 from coppertrail.patterns.base import (
     EVENT_COLS,
