@@ -45,8 +45,30 @@
   font-size: var(--type-sub-size); color: var(--text2); background: var(--bg0); border-top: 1px solid var(--border);
   min-width: 0; white-space: nowrap;
 }
-.statusstrip .state { display: inline-flex; align-items: center; gap: 6px; }
+.statusstrip .strip-state { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.statusstrip .strip-state.stale { font-weight: 700; }
+.statusstrip .pulling { display: inline-flex; align-items: center; gap: 6px; color: var(--text2); }
 .statusstrip .sep { width: 1px; height: 14px; background: var(--border); flex: none; }
 .statusstrip .error { color: var(--fall); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .statusstrip .spacer { flex: 1; }
 .statusstrip .credit { display: inline-flex; align-items: center; gap: 5px; }
+
+/* Compact window (<= 1440 px, HANDOVER 8b "Resizing"): 56 px icon rail with tooltips,
+   16 px view padding. The filter bar's "More" button lives in filterbar.css. */
+.navrail { position: relative; z-index: 5; }
+.nav { position: relative; }
+@media (max-width: 1440px) {
+  .app { grid-template-columns: var(--size-nav-w-compact) minmax(0, 1fr); }
+  .navrail { padding: 0 var(--space-2) var(--space-3); align-items: center; }
+  .navrail .brand { justify-content: center; padding: 0; gap: 0; }
+  .navrail .wordmark, .nav .nav-label { display: none; }
+  .nav { width: 40px; padding: 0; justify-content: center; }
+  .filterbar { padding: 0 var(--size-view-pad-compact); }
+  .view { padding: var(--size-view-pad-compact); }
+  .nav[data-tip]:hover::after, .nav[data-tip]:focus-visible::after {
+    content: attr(data-tip); position: absolute; left: calc(100% + 10px); top: 50%; transform: translateY(-50%);
+    padding: var(--space-1) 10px; background: var(--overlay); border: 1px solid var(--borderStrong);
+    border-radius: var(--radius-control); color: var(--text1); font-size: var(--type-small-size); font-weight: 400;
+    white-space: nowrap; pointer-events: none; z-index: 40;
+  }
+}

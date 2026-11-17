@@ -92,9 +92,7 @@ def percent_change(pct: float) -> tuple[str, Direction]:
 
 def local_datetime(ts: datetime) -> str:
     """`16 Nov 2026, 08:42` in local time (naive datetimes are taken as UTC)."""
-    if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=ZoneInfo("UTC"))
-    loc = ts.astimezone(LOCAL_TZ)
+    loc = _local(ts)
     return f"{day(loc)}, {loc:%H:%M}"
 
 
@@ -108,3 +106,27 @@ def date_range(start: date, end: date) -> str:
     same_year = start.year == end.year
     left = f"{start.day} {MONTHS[start.month - 1]}" if same_year else day(start)
     return f"{left} – {day(end)}"
+
+
+def _local(ts: datetime) -> datetime:
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=ZoneInfo("UTC"))
+    return ts.astimezone(LOCAL_TZ)
+
+
+def short_datetime(ts: datetime) -> str:
+    """`13 Nov, 07:55` in local time, for "Charts end on …"."""
+    loc = _local(ts)
+    return f"{loc.day} {MONTHS[loc.month - 1]}, {loc:%H:%M}"
+
+
+def clock(ts: datetime) -> str:
+    """`08:44:10` in local time."""
+    return f"{_local(ts):%H:%M:%S}"
+
+
+def needs_more(days: int) -> str:
+    """`Needs 5 more days of data`; from two weeks on in whole weeks, rounded up."""
+    if days >= 14:
+        return f"Needs {-(-days // 7)} more weeks of data"
+    return f"Needs {days} more day{'' if days == 1 else 's'} of data"

@@ -75,3 +75,24 @@ def test_dates_in_local_time_and_english_months():
     assert fmt.day(date(2026, 11, 9)) == "9 Nov 2026"
     assert fmt.date_range(date(2026, 10, 17), date(2026, 11, 16)) == "17 Oct – 16 Nov 2026"
     assert fmt.date_range(date(2025, 12, 30), date(2026, 1, 2)) == ("30 Dec 2025 – 2 Jan 2026")
+
+
+def test_short_datetime_and_clock():
+    ts = datetime(2026, 11, 13, 6, 55, 4, tzinfo=UTC)  # 07:55 CET
+    assert fmt.short_datetime(ts) == "13 Nov, 07:55"
+    assert fmt.clock(ts) == "07:55:04"
+
+
+@pytest.mark.parametrize(
+    ("days", "text"),
+    [
+        (1, "Needs 1 more day of data"),
+        (5, "Needs 5 more days of data"),
+        (13, "Needs 13 more days of data"),
+        (14, "Needs 2 more weeks of data"),
+        (15, "Needs 3 more weeks of data"),  # rounds up: never promise too early
+        (21, "Needs 3 more weeks of data"),
+    ],
+)
+def test_needs_more(days, text):
+    assert fmt.needs_more(days) == text

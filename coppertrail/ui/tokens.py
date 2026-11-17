@@ -122,5 +122,7 @@ CHART = {
     "axis_font_px": 12,
     "marker_dot_px": 8,  # dot with 2 px ring in `surface`
 }
+# Window widths (HANDOVER 8b "Resizing"): compact at or below, ultrawide at or above.
+BREAKPOINTS = {"compact_max": 1440, "ultrawide_min": 2400}
 SERIES = ["s1", "s2", "s3", "s4", "s5", "s6"]
 COIN = {"mark_px": 7, "gap_px": 3, "ring_px": 1, "short_from_gold": 100}

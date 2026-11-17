@@ -79,6 +79,7 @@
   --type-small-size: 12px;
   --type-small-transform: none;
   --type-small-spacing: 0;
+  --type-mono-family: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
