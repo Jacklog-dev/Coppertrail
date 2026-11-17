@@ -119,9 +119,55 @@ ITEMS = Table(
         ("level", pa.int64()),
         ("fetched_at", TS),
         ("source", pa.string()),
+        # From /v1/items (null on tooltip rows; the newest row per item wins).
+        ("subclass", pa.string()),
+        ("required_level", pa.int64()),
+        ("vendor_price", pa.int64()),  # copper a vendor pays for one unit (vendorSell)
     ),
     ("item_id",),
     "fetched_at",
+)
+# One row per recipe and reagent, from /v1/crafting (all=true). No prices: those come
+# from the snapshot and hourly tables.
+RECIPES = Table(
+    "recipes",
+    _schema(
+        ("spell_id", pa.int64()),
+        ("recipe_name", pa.string()),
+        ("profession", pa.string()),
+        ("skill_required", pa.int64()),
+        ("acquisition", pa.string()),
+        ("result_id", pa.int64()),
+        ("result_name", pa.string()),
+        ("result_qty_min", pa.int64()),
+        ("result_qty_max", pa.int64()),
+        ("reagent_id", pa.int64()),
+        ("reagent_name", pa.string()),
+        ("reagent_qty", pa.int64()),
+        ("source", pa.string()),
+        ("run_id", pa.string()),
+        ("fetched_at", TS),
+    ),
+    ("spell_id", "reagent_id"),
+    "fetched_at",
+)
+# Game builds from ahledger.com/feed/builds.xml, one row per feed entry.
+BUILDS = Table(
+    "builds",
+    _schema(
+        ("build_id", pa.int64()),
+        ("version", pa.string()),
+        ("stage", pa.string()),
+        ("title", pa.string()),
+        ("published_at", TS),
+        ("url", pa.string()),
+        ("description", pa.string()),
+        ("source", pa.string()),
+        ("run_id", pa.string()),
+        ("fetched_at", TS),
+    ),
+    ("url",),
+    "published_at",
 )
 WATCHLIST = Table(
     "watchlist",
@@ -186,7 +232,20 @@ GAPS = Table(
 POPULATION = Table("population", None, (), "fetched_at", order=None)
 
 TABLES = {
-    t.name: t for t in (HOURLY, SCANS, SNAPSHOT, ECONOMY, ITEMS, WATCHLIST, RUNS, GAPS, POPULATION)
+    t.name: t
+    for t in (
+        HOURLY,
+        SCANS,
+        SNAPSHOT,
+        ECONOMY,
+        ITEMS,
+        WATCHLIST,
+        RUNS,
+        GAPS,
+        POPULATION,
+        RECIPES,
+        BUILDS,
+    )
 }
 
 

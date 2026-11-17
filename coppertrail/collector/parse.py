@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import csv
 import io
+import re
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 
 SOURCE_API = "api"
 
@@ -96,6 +99,7 @@ def series_rows(
 
 
 def item_rows(tooltip_payload: dict, fetched_at: datetime) -> list[dict]:
+    """Rows from /v1/tooltip. It has no subclass or vendor price; /v1/items fills those."""
     return [
         {
             "item_id": it["id"],
@@ -105,9 +109,103 @@ def item_rows(tooltip_payload: dict, fetched_at: datetime) -> list[dict]:
             "level": it.get("level"),
             "fetched_at": fetched_at,
             "source": SOURCE_API,
+            "subclass": None,
+            "required_level": None,
+            "vendor_price": None,
         }
         for it in tooltip_payload.get("items") or []
     ]
+
+
+def item_detail_row(payload: dict, fetched_at: datetime) -> dict:
+    """A full items row from /v1/items/{id}?game=forever (verified 2026-11-17):
+    {id, name, quality, itemClass, itemSubclass, level, requiredLevel, vendorSell, ...}.
+    vendorSell is copper a vendor pays for one unit."""
+    return {
+        "item_id": payload["id"],
+        "name": payload.get("name"),
+        "quality": payload.get("quality"),
+        "item_class": payload.get("itemClass"),
+        "subclass": payload.get("itemSubclass"),
+        "level": payload.get("level"),
+        "required_level": payload.get("requiredLevel"),
+        "vendor_price": payload.get("vendorSell"),
+        "fetched_at": fetched_at,
+        "source": SOURCE_API,
+    }
+
+
+def recipe_rows(payload: dict, fetched_at: datetime, run_id: str) -> list[dict]:
+    """One row per recipe and reagent from /v1/crafting (JSON; the CSV has no reagents).
+    A recipe without reagents keeps one row with reagent fields null."""
+    rows = []
+    for r in payload.get("recipes") or []:
+        rec, res = r["recipe"], r.get("result") or {}
+        base = {
+            "spell_id": rec["spellId"],
+            "recipe_name": rec.get("name"),
+            "profession": rec.get("profession"),
+            "skill_required": rec.get("skillRequired"),
+            "acquisition": rec.get("acquisition"),
+            "result_id": res.get("id"),
+            "result_name": res.get("name"),
+            "result_qty_min": res.get("qtyMin"),
+            "result_qty_max": res.get("qtyMax"),
+        }
+        tail = {"source": SOURCE_API, "run_id": run_id, "fetched_at": fetched_at}
+        reagents = r.get("reagents") or [{}]
+        for g in reagents:
+            rows.append(
+                {
+                    **base,
+                    "reagent_id": g.get("id"),
+                    "reagent_name": g.get("name"),
+                    "reagent_qty": g.get("qty"),
+                    **tail,
+                }
+            )
+    return rows
+
+
+_BUILD_TITLE = re.compile(
+    r"^WoW Forever\s+(?:(?P<stage>.*?)\s+)?(?P<version>\d+(?:\.\d+)+)\s+\(build\s+(?P<build>\d+)\)"
+)
+
+
+def _rfc822_utc(value: str) -> datetime:
+    """RFC 822 date as aware UTC; '-0000' (zone unknown) parses naive and is taken as UTC."""
+    dt = parsedate_to_datetime(value.strip())
+    return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+
+
+def build_rows(xml_text: str, fetched_at: datetime, run_id: str) -> list[dict]:
+    """Rows from the RSS feed ahledger.com/feed/builds.xml. Titles look like
+    'WoW Forever [stage ]1.60.1 (build 70938): ...'; build, version and stage are null
+    when a title does not match."""
+    root = ET.fromstring(xml_text)
+    rows = []
+    for it in root.iter("item"):
+        title = (it.findtext("title") or "").strip()
+        url = (it.findtext("link") or it.findtext("guid") or "").strip()
+        pub = it.findtext("pubDate")
+        if not url or not pub:
+            continue
+        m = _BUILD_TITLE.match(title)
+        rows.append(
+            {
+                "build_id": int(m["build"]) if m else None,
+                "version": m["version"] if m else None,
+                "stage": (m["stage"] or None) if m else None,
+                "title": title,
+                "published_at": _rfc822_utc(pub),
+                "url": url,
+                "description": (it.findtext("description") or "").strip() or None,
+                "source": SOURCE_API,
+                "run_id": run_id,
+                "fetched_at": fetched_at,
+            }
+        )
+    return rows
 
 
 def economy_rows(payload: dict, fetched_at: datetime, run_id: str) -> list[dict]:
