@@ -115,14 +115,18 @@ def js_facade(api: Bridge) -> Any:
     """An object with only the exposed methods, for pywebview's `js_api`.
 
     pywebview exposes every public attribute of `js_api` (and walks nested objects), so the
-    bridge itself would leak its item lists. Calls arrive on pywebview threads; one at a time.
+    bridge itself would leak its item lists. Calls arrive on pywebview threads; one at a time,
+    except the `UNLOCKED` view methods, which copy their inputs under the lock themselves.
     """
     lock = api.lock  # shared with the pull worker
+    unlocked = set(getattr(type(api), "UNLOCKED", ()))
 
     def wrap(name: str):
         method = getattr(api, name)
 
         def call(self, *args):
+            if name in unlocked:
+                return method(*args)
             with lock:
                 return method(*args)
 

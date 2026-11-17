@@ -96,3 +96,21 @@ def test_short_datetime_and_clock():
 )
 def test_needs_more(days, text):
     assert fmt.needs_more(days) == text
+
+
+def test_view_helpers():
+    ts = datetime(2026, 11, 16, 5, 10, tzinfo=UTC)  # 06:10 CET
+    assert fmt.day_month(date(2026, 11, 7)) == "7 Nov"
+    assert fmt.hour_of_day(7) == "07:00"
+    assert fmt.points(19.84) == "+19.8 pts"
+    assert fmt.points(-27.0) == "−27.0 pts"
+    assert fmt.share(0.163) == "16.3 %"
+    assert fmt.short_datetime(ts) == "16 Nov, 06:10"
+
+
+def test_change_from_fraction():
+    assert fmt.change(-0.87) == {"text": "▼ −87 %", "dir": "fall"}
+    assert fmt.change(0.142) == {"text": "▲ +14.2 %", "dir": "rise"}
+    assert fmt.change(None) is None
+    assert fmt.change(float("nan")) is None
+    assert fmt.signed_percent(-0.041) == "−4.1 %"
