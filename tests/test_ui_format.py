@@ -147,3 +147,11 @@ def test_decimal_uses_a_real_minus():
     assert fmt.decimal(-0.304) == "−0.30"
     assert fmt.decimal(0.856) == "0.86"
     assert fmt.decimal(-0.001) == "0.00"
+
+
+def test_credit_constants():
+    assert (
+        fmt.CREDIT_TEXT
+        == "Data: Blizzard Entertainment API · not affiliated with or endorsed by Blizzard"
+    )
+    assert fmt.CREDIT_URL == "https://github.com/Jacklog-dev/Coppertrail#data-and-privacy"
