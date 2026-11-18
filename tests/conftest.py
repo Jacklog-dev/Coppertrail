@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from coppertrail.collector.store import TABLES, Store, to_arrow
+from coppertrail.collector.legacy.store import TABLES, Store, to_arrow
 
 ITEMS = [
     # item_id, name, class, min_buyout (copper), sales/day

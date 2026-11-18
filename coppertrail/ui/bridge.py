@@ -19,7 +19,7 @@ from typing import Any, ClassVar
 import duckdb
 import pandas as pd
 
-from coppertrail.collector.store import TABLES, Store
+from coppertrail.collector.legacy.store import TABLES, Store
 from coppertrail.patterns import REGISTRY, Context, PatternResult
 from coppertrail.patterns import run as run_pattern
 from coppertrail.patterns.inflation import classify

@@ -282,7 +282,7 @@ def test_short_archive_keeps_the_ready_date(market, config_dir):  # noqa: F811
 
 
 def _add_build(archive, day):
-    from coppertrail.collector.store import TABLES, Store, to_arrow
+    from coppertrail.collector.legacy.store import TABLES, Store, to_arrow
 
     at = datetime(day.year, day.month, day.day, 15, tzinfo=UTC)
     row = {

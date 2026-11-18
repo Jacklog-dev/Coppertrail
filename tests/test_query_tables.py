@@ -1,6 +1,6 @@
 from datetime import UTC, date, datetime
 
-from coppertrail.collector.store import TABLES, Store, to_arrow
+from coppertrail.collector.legacy.store import TABLES, Store, to_arrow
 from coppertrail.patterns.base import Context
 from coppertrail.query.series import builds, item_details, recipes
 

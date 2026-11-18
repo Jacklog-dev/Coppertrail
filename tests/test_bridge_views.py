@@ -6,7 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 import pandas as pd
 import pytest
 
-from coppertrail.collector.store import TABLES, Store, to_arrow
+from coppertrail.collector.legacy.store import TABLES, Store, to_arrow
 from coppertrail.patterns.base import PatternResult, events_frame
 from coppertrail.query.catalog import Item
 from coppertrail.query.groups import load_groups

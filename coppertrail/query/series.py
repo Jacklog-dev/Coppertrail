@@ -16,7 +16,7 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
-from coppertrail.collector.store import TABLES, Store, Table
+from coppertrail.collector.legacy.store import TABLES, Store, Table
 
 HOURLY_COLS = ["item_id", "hour", "min", "p25", "median", "p75", "quantity", "auctions", "source"]
 SCAN_COLS = [

@@ -9,10 +9,10 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .config import load_config
-from .gaps import format_summary, gap_report
-from .run import Collector
-from .store import WATCHLIST, Store
+from .legacy.config import load_config
+from .legacy.gaps import format_summary, gap_report
+from .legacy.run import Collector
+from .legacy.store import WATCHLIST, Store
 
 DEFAULT_DATA_DIR = "private"
 

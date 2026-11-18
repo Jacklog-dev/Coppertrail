@@ -2,10 +2,18 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 
-from coppertrail.collector.api import AhledgerClient, Throttle
-from coppertrail.collector.config import Config
-from coppertrail.collector.run import EXIT_CUTOFF, EXIT_LOCKED, EXIT_OK, Collector
-from coppertrail.collector.store import ECONOMY, GAPS, HOURLY, RUNS, SCANS, SNAPSHOT, WATCHLIST
+from coppertrail.collector.legacy.api import AhledgerClient, Throttle
+from coppertrail.collector.legacy.config import Config
+from coppertrail.collector.legacy.run import EXIT_CUTOFF, EXIT_LOCKED, EXIT_OK, Collector
+from coppertrail.collector.legacy.store import (
+    ECONOMY,
+    GAPS,
+    HOURLY,
+    RUNS,
+    SCANS,
+    SNAPSHOT,
+    WATCHLIST,
+)
 
 NOW = datetime(2026, 11, 16, 20, 30, tzinfo=UTC)
 MARKET = "forever.normal.alliance.eu"
@@ -142,7 +150,7 @@ def test_interrupted_run_resumes_without_refetching(tmp_path):
     c = make(tmp_path, api)
     # Simulate a crash after the first hourly item: stage watchlist and one item by hand.
     c.lock.acquire()
-    from coppertrail.collector.run import RunState
+    from coppertrail.collector.legacy.run import RunState
 
     c.state = RunState(
         run_id="20261116T200000Z", started_at=(NOW - timedelta(minutes=30)).isoformat()

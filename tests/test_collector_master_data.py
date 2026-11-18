@@ -5,9 +5,9 @@ from datetime import UTC, datetime, timedelta
 import httpx
 from test_run import MARKET, NOW, FakeApi, make
 
-from coppertrail.collector import parse
-from coppertrail.collector.run import EXIT_OK
-from coppertrail.collector.store import BUILDS, ITEMS, RECIPES, RUNS
+from coppertrail.collector.legacy import parse
+from coppertrail.collector.legacy.run import EXIT_OK
+from coppertrail.collector.legacy.store import BUILDS, ITEMS, RECIPES, RUNS
 
 FETCHED = datetime(2026, 11, 17, 14, 0, tzinfo=UTC)
 
@@ -263,7 +263,7 @@ def test_rfc822_without_zone_is_utc():
 def test_resumed_details_respect_cap_and_skip_staged(tmp_path):
     api = MasterApi()
     c = make(tmp_path, api, item_details_per_run=2)
-    from coppertrail.collector.run import RunState
+    from coppertrail.collector.legacy.run import RunState
 
     c.state = RunState(run_id="20261116T200000Z", started_at=NOW.isoformat())
     c.store.run_dir(c.state.run_id).mkdir(parents=True)

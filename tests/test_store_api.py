@@ -4,9 +4,9 @@ import httpx
 import pyarrow.parquet as pq
 import pytest
 
-from coppertrail.collector.api import AhledgerClient, ApiError, Throttle
-from coppertrail.collector.config import Config
-from coppertrail.collector.store import HOURLY, Store, to_arrow
+from coppertrail.collector.legacy.api import AhledgerClient, ApiError, Throttle
+from coppertrail.collector.legacy.config import Config
+from coppertrail.collector.legacy.store import HOURLY, Store, to_arrow
 
 T0 = datetime(2026, 11, 15, 22, tzinfo=UTC)
 

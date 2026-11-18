@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 from test_bridge_views import market  # noqa: F401 - shared fixture
 
-from coppertrail.collector.store import TABLES, Store, to_arrow
+from coppertrail.collector.legacy.store import TABLES, Store, to_arrow
 from coppertrail.ui.bridge import Bridge
 
 

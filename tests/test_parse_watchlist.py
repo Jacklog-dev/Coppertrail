@@ -2,9 +2,9 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from coppertrail.collector import parse
-from coppertrail.collector.config import Config, check_cutoff, load_config
-from coppertrail.collector.watchlist import build_watchlist, rule_reason
+from coppertrail.collector.legacy import parse
+from coppertrail.collector.legacy.config import Config, check_cutoff, load_config
+from coppertrail.collector.legacy.watchlist import build_watchlist, rule_reason
 
 PT = """AHL1|forever/normal/alliance/eu|1794859989|3
 8170:1775:1599:5686:1812:1631:500:2143:91368

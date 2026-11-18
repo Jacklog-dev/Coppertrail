@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from coppertrail.collector.store import TABLES, Store
+from coppertrail.collector.legacy.store import TABLES, Store
 
 DEFAULT_DATA_DIR = Path("private")
 
