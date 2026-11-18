@@ -17,6 +17,10 @@ dist/
 .ruff_cache/
 .mypy_cache/
 
+# API credentials (they belong in %APPDATA%\Coppertrail or the environment)
+blizzard.toml
+.env
+
 # Local tooling
 .claude/settings.local.json
 .idea/
