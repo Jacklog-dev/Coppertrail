@@ -1,6 +1,9 @@
-// Status strip: data age · Pull latest data · (error) · spacer · Prices from AHledger (always).
+// Status strip: data age · Pull latest data · (error) · spacer · data credit (always).
 import { el, replace } from "./dom.js";
 import { icon } from "./icons.js";
+
+// Shown before the first state; afterwards the text comes from the bridge (format.CREDIT_TEXT).
+const CREDIT_FALLBACK = "Data: Blizzard Entertainment API · not affiliated with or endorsed by Blizzard";
 
 /**
  * render(container, state | null, {pulling, pct?, error: {message, detail} | null, onPull(), onCredit(event)})
@@ -10,13 +13,13 @@ import { icon } from "./icons.js";
 export function render(container, state, { pulling, pct = null, error, onPull, onCredit }) {
   if (!state) {
     // Before the first state: the credit as text (its link comes from the bridge).
-    replace(container, el("div", { class: "spacer" }), el("span", { class: "credit", text: "Prices from AHledger" }));
+    replace(container, el("div", { class: "spacer" }), el("span", { class: "credit", text: CREDIT_FALLBACK }));
     return;
   }
   const credit = el(
     "a",
     { class: "credit", attrs: { href: state.creditUrl, target: "_blank", rel: "noopener" }, on: { click: onCredit } },
-    "Prices from AHledger",
+    state.creditText ?? CREDIT_FALLBACK,
     icon("external", 13),
   );
   const st = state.status;

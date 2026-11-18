@@ -37,7 +37,7 @@ export function noData({ dataDir, status, pulling, onSetDir, onChange, onPull })
     el("h2", { class: "state-title", text: status.error ? status.text : "No prices yet" }),
     el("p", {
       class: "state-text",
-      text: "Coppertrail keeps a local copy of the AHledger price archive. Pull once to start — the first pull reads the full history and takes about a minute.",
+      text: "Coppertrail keeps a local copy of your Blizzard auction archive. Pull once to start.",
     }),
     el("div", { class: "folder-row" }, el("label", { class: "input" }, icon("folder", 15), input), el("button", { class: "ctl", text: "Change…", on: { click: onChange } })),
     el(

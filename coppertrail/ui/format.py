@@ -18,6 +18,10 @@ RISE = "▲"  # black up-pointing triangle
 FALL = "▼"  # black down-pointing triangle
 LOCAL_TZ = ZoneInfo("Europe/Berlin")  # CET/CEST, the display time zone
 
+# The status strip credit: Blizzard as the source, never as an endorser (spec "GUI").
+CREDIT_TEXT = "Data: Blizzard Entertainment API · not affiliated with or endorsed by Blizzard"
+CREDIT_URL = "https://github.com/Jacklog-dev/Coppertrail#data-and-privacy"
+
 # Month names fixed in English: strftime month names follow the process locale.
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
