@@ -19,8 +19,20 @@ SPEC = ROOT / "packaging" / "coppertrail.spec"
 DIST = ROOT / "dist"
 EXE = DIST / "Coppertrail.exe"
 # Never in the bundle: AHledger data may not be redistributed. Qt must not be in it either.
-FORBIDDEN_SUFFIXES = (".parquet", ".duckdb", ".duckdb.wal")
+# Data formats anywhere (outside the web folder libraries may ship .json metadata, such as
+# pythonnet's Python.Runtime.deps.json, so .json is only refused there).
+FORBIDDEN_SUFFIXES = (
+    ".parquet", ".duckdb", ".duckdb.wal", ".csv", ".arrow", ".feather", ".xlsx",
+)  # fmt: skip
 FORBIDDEN_NAMES = ("pyside", "pyqt", "qtpy", "pyqtgraph", "qt5core", "qt6core")
+# Pure-Python modules inside the PYZ (lower case prefixes of the dotted names).
+FORBIDDEN_MODULES = ("pyside", "pyqt", "qtpy", "pyqtgraph", "webview.platforms.qt")
+WEB = "coppertrail/ui/web/"
+# The only files the front end folder may bundle (license texts are kept too).
+WEB_SUFFIXES = (
+    ".html", ".css", ".js", ".mjs", ".svg", ".png", ".ico", ".woff", ".woff2", ".ttf", ".otf",
+    ".txt",
+)  # fmt: skip
 REQUIRED = ("coppertrail/ui/web/index.html", "coppertrail/ui/web/vendor/")
 
 
@@ -30,13 +42,38 @@ def bundle_entries(exe: Path) -> list[str]:
     return sorted(CArchiveReader(str(exe)).toc)
 
 
-def check_bundle(names: list[str]) -> list[str]:
-    """Problems with a bundle's table of contents; empty when it is fine."""
+def bundle_modules(exe: Path) -> list[str]:
+    """Module names inside every embedded PYZ archive (pure-Python code is not in the TOC)."""
+    from PyInstaller.archive import readers
+
+    archive = readers.CArchiveReader(str(exe))
+    modules: set[str] = set()
+    for name, entry in archive.toc.items():
+        if entry[-1] == "z":  # PKG_ITEM_PYZ (PyInstaller 6)
+            modules.update(archive.open_embedded_archive(name).toc)
+    return sorted(modules)
+
+
+def _web_file_ok(name: str) -> bool:
+    base = name.rsplit("/", 1)[-1]
+    return name.endswith(WEB_SUFFIXES) or "license" in base
+
+
+def check_bundle(names: list[str], modules: list[str] = ()) -> list[str]:
+    """Problems with a bundle's table of contents and PYZ modules; empty when it is fine."""
     lower = [n.replace("\\", "/").lower() for n in names]
     problems = [
         f"collected data in the bundle: {n}" for n in lower if n.endswith(FORBIDDEN_SUFFIXES)
     ]
+    problems += [
+        f"not a front-end file in the web folder: {n}"
+        for n in lower
+        if n.startswith(WEB) and not n.endswith(FORBIDDEN_SUFFIXES) and not _web_file_ok(n)
+    ]
     problems += [f"Qt in the bundle: {n}" for n in lower if any(q in n for q in FORBIDDEN_NAMES)]
+    problems += [
+        f"Qt module in the bundle: {m}" for m in modules if m.lower().startswith(FORBIDDEN_MODULES)
+    ]
     problems += [
         f"missing from the bundle: {r}" for r in REQUIRED if not any(r in n for n in lower)
     ]
@@ -55,7 +92,7 @@ def main(argv: list[str] | None = None) -> int:
     env = {**os.environ, "COPPERTRAIL_CONSOLE": "1" if "--console" in args else "0"}
     if subprocess.run(cmd, cwd=ROOT, env=env).returncode != 0:
         return 1
-    problems = check_bundle(bundle_entries(EXE))
+    problems = check_bundle(bundle_entries(EXE), bundle_modules(EXE))
     for p in problems:
         print(p, file=sys.stderr)
     if problems:

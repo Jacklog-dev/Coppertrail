@@ -79,6 +79,10 @@ WAITING = {
     ),
 }
 
+# The input exists in the archive, but not in the date range or the item filter.
+NO_BUILDS_IN_RANGE = "No builds in this date range."
+NO_VENDOR_IN_FILTER = "No vendor prices for the items in this filter yet."
+
 
 # Tabs and basis ------------------------------------------------------------------------
 
@@ -464,7 +468,7 @@ TABLES: dict[str, Table] = {
             Col(
                 "Correlation",
                 "num",
-                lambda r: f"{float(r['corr']):.2f}" if finite(r.get("corr")) else "–",
+                lambda r: fmt.decimal(r["corr"]) if finite(r.get("corr")) else "–",
             ),
             Col("Days", "num", count_cell("n_days")),
             Col("Same group", "muted", lambda r: "yes" if r.get("same_group") else "–"),

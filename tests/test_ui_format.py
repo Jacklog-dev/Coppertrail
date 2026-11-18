@@ -38,9 +38,9 @@ def test_coins_reject_negative():
         (-3.25, "▼ −3.2 %", "fall"),
         (488.0, "▲ +488 %", "rise"),
         (1_234.0, "▲ +1,234 %", "rise"),
-        (0.0, "± 0.0 %", "flat"),
-        (0.04, "± 0.0 %", "flat"),  # rounds to zero: no arrow
-        (-0.04, "± 0.0 %", "flat"),
+        (0.0, "± 0.0 %", "flat"),  # no change: no arrow
+        (0.04, "▲ +<0.1 %", "rise"),  # non-zero never rounds to zero
+        (-0.04, "▼ −<0.1 %", "fall"),
         (49.96, "▲ +50.0 %", "rise"),
     ],
 )
@@ -123,3 +123,27 @@ def test_pattern_helpers():
     assert fmt.ratio(1.0712) == "1.07 ×"
     assert fmt.whole_share(0.833) == "83 %"
     assert fmt.signed_coins_text(-14_050) == "−1g 40s 50c"
+
+
+def test_percent_never_rounds_to_minus_100_or_zero():
+    # Black Diamond: −99.6 % must not read as a total loss.
+    assert fmt.change(-0.996) == {"text": "▼ −99.6 %", "dir": "fall"}
+    assert fmt.change(-0.9996)["text"] == "▼ −99.9 %"
+    assert fmt.change(-1.0)["text"] == "▼ −100 %"
+    assert fmt.change(0.996)["text"] == "▲ +99.6 %"
+    assert fmt.change(-0.994)["text"] == "▼ −99 %"
+    assert fmt.signed_percent(-0.996) == "−99.6 %"
+    assert fmt.signed_percent(-1.0) == "−100 %"
+    # A non-zero change never reads as no change.
+    assert fmt.change(0.0003) == {"text": "▲ +<0.1 %", "dir": "rise"}
+    assert fmt.change(-0.0003) == {"text": "▼ −<0.1 %", "dir": "fall"}
+    assert fmt.change(0.0) == {"text": "± 0.0 %", "dir": "flat"}
+    assert fmt.signed_percent(-0.0003) == "−<0.1 %"
+    assert fmt.signed_percent(0.0) == "± 0.0 %"
+    assert fmt.percent_change(0.04) == ("▲ +<0.1 %", "rise")
+
+
+def test_decimal_uses_a_real_minus():
+    assert fmt.decimal(-0.304) == "−0.30"
+    assert fmt.decimal(0.856) == "0.86"
+    assert fmt.decimal(-0.001) == "0.00"

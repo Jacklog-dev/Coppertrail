@@ -14,5 +14,6 @@
 - Research note on importing own in-game scans
 - Pattern jobs (all 12): daily rhythm, weekday and raid reset, mispricings, supply shocks, buyouts, mean reversion, processing spreads, progression wave, correlated items, vendor floor, build effects, inflation index
 - Patterns that lack history show when they will be ready
-- GUI: Market overview and Item detail views on real data
+- GUI: Market overview, Item detail, Patterns and Movers & outliers views on real data
 - Windows build: single `Coppertrail.exe` (PyInstaller), no data bundled; workflow attaches it to tagged releases
+- Fixes: history and waiting messages respect the date range, no stale results after a pull, exe build checks for Qt and data files, release job holds the only write token, real minus signs, no false −100 %

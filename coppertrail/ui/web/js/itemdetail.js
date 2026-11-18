@@ -30,7 +30,7 @@ const view = {
 
 /** render(container, state, banner, nav) */
 export function render(container, state, banner, nav) {
-  const base = JSON.stringify([state.dataDir, state.status.lastPoint, state.filters, state.groups, state.window]);
+  const base = JSON.stringify([state.dataDir, state.generation, state.status.lastPoint, state.filters, state.groups, state.window]);
   if (!(view.root && view.root.parentNode === container)) {
     skeleton(container, banner, state);
     view.listKey = view.detailKey = null;

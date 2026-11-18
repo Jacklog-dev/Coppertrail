@@ -22,7 +22,11 @@ const Y = {
   count: axisCount,
   points: axisSigned,
   index: (v) => Math.round(v).toString(),
-  plain: (v) => (Math.abs(v) < 10 ? v.toFixed(2) : Math.round(v).toLocaleString("en-US")),
+  plain: (v) => {
+    // Correlations go below zero: a real minus sign, never a hyphen (and no "−0.00").
+    const s = Math.abs(v) < 10 ? v.toFixed(2) : Math.round(v).toLocaleString("en-US");
+    return Number(s.replace(/,/g, "")) === 0 ? s.replace("-", "") : s.replace("-", "−");
+  },
 };
 
 /** render(container, state, banner, nav) */
@@ -33,7 +37,7 @@ export function render(container, state, banner, nav) {
     pick.item = nav.item;
     pick.select = null;
   }
-  const base = [state.dataDir, state.status.lastPoint, state.filters, state.groups, state.window];
+  const base = [state.dataDir, state.generation, state.status.lastPoint, state.filters, state.groups, state.window];
   const key = JSON.stringify([...base, pick.key, pick.select, pick.sort, pick.item]);
   const head = viewHead("Patterns", state.items.sub);
   const rerender = () => render(container, state, banner, nav);

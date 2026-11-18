@@ -252,3 +252,76 @@ def test_build_window_picks_the_run_of_that_build():
     assert set(pv._build_window(w, None, 1, "1.60.1", t1)["price_idx"]) == {1.0}
     assert set(pv._build_window(w, None, 1, "1.60.1", t2)["price_idx"]) == {2.0}
     assert list(pv._build_window(w, None, 1, "1.60.1", t2)["offset_h"]) == list(range(-3, 4))
+
+
+def test_short_window_on_a_long_enough_archive_asks_to_widen(market, config_dir):  # noqa: F811
+    # The archive covers 8 days (enough for the 7-day rhythm), the 24 h range only one.
+    b = Bridge(market, now=NOW)
+    b.set_filters({"range": "24h"})
+    p = b.patterns("daily_rhythm")
+    assert p["state"] == "history"
+    gap = p["gap"]
+    assert gap["title"] == "Needs at least 7 days"
+    assert "widen the date range to 7 d or All" in gap["why"]
+    assert gap["ready"] == ""
+    assert gap["progress"] == "1 of 7 days"
+    assert "ready around" not in p["basis"]["text"]
+    chips = {t["key"]: t["chip"] for t in p["tabs"]}
+    assert chips["daily_rhythm"] is None  # the archive has the data: no "needs data" chip
+    assert chips["weekday_reset"] == "needs data"  # 28 days: the archive is too short
+
+
+def test_short_archive_keeps_the_ready_date(market, config_dir):  # noqa: F811
+    b = Bridge(market, now=NOW)
+    b.set_filters({"range": "24h"})
+    gap = b.patterns("weekday_reset")["gap"]
+    # Counted from the archive (8 days), not from the one-day window.
+    assert gap["title"] == "Needs 3 more weeks of data"
+    assert gap["progress"] == "8 of 28 days"
+    assert gap["ready"] == "ready around 6 Dec 2026"
+
+
+def _add_build(archive, day):
+    from coppertrail.collector.store import TABLES, Store, to_arrow
+
+    at = datetime(day.year, day.month, day.day, 15, tzinfo=UTC)
+    row = {
+        "build_id": 1, "version": "1.60.1", "stage": "", "title": "WoW Forever 1.60.1",
+        "published_at": at, "url": "https://example.invalid/b1", "description": "",
+        "source": "api", "run_id": "r", "fetched_at": at,
+    }  # fmt: skip
+    Store(archive).upsert(TABLES["builds"], to_arrow(TABLES["builds"], [row]))
+
+
+def test_builds_outside_the_range_are_not_waiting(market, config_dir):  # noqa: F811
+    _add_build(market, date(2026, 11, 10))
+    b = Bridge(market, now=NOW)
+    b.set_filters({"range": "24h"})
+    p = b.patterns("build_effects")
+    assert p["state"] == "ready"
+    assert p["table"]["note"] == "No builds in this date range."
+    assert {t["key"]: t["chip"] for t in p["tabs"]}["build_effects"] is None
+
+
+def test_builds_waiting_only_without_any_build(market, config_dir):  # noqa: F811
+    p = Bridge(market, now=NOW).patterns("build_effects")
+    assert p["state"] == "waiting"
+
+
+def test_vendor_prices_outside_the_filter_are_not_waiting(market, config_dir):  # noqa: F811
+    b = Bridge(market, now=NOW)
+    b.set_filters({"groups": ["Herbs"]})  # Rugged Leather (the one vendor price) is not in it
+    p = b.patterns("vendor_floor")
+    assert p["state"] == "ready"
+    assert p["table"]["note"] == "No vendor prices for the items in this filter yet."
+
+
+def test_correlation_cells_use_a_real_minus():
+    ranked = pd.DataFrame(
+        [
+            {"item_id": 1, "name": "A", "partner_id": 2, "partner_name": "B", "corr": -0.304,
+             "lag_days": 0, "n_days": 21, "same_group": False},
+        ]
+    )  # fmt: skip
+    p = pv.build(_result("correlations", ranked), make_ctx(), select=None, item=None, sort=None)
+    assert p["table"]["rows"][0]["cells"][2] == "−0.30"

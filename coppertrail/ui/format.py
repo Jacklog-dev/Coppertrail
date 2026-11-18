@@ -76,19 +76,36 @@ def signed_number(value: float, decimals: int = 0) -> str:
     return ("+" if value > 0 else MINUS) + text
 
 
+def _signed_pct(pct: float) -> str:
+    """`+14.2`, `−87`, `0.0`: the number part of a signed percentage.
+
+    One decimal below 50 %, none from 50 % on. Rounding never turns a change into
+    something it is not: 99.5 % up to (not including) 100 % keep one decimal and stay
+    below 100 (`−99.6`, `−99.9`), and a non-zero change below 0.05 % reads `+<0.1`.
+    """
+    if pct == 0:
+        return f"{0:.1f}"
+    size = abs(pct)
+    if round(size, 1) == 0:
+        return ("+" if pct > 0 else MINUS) + "<0.1"
+    decimals = 1 if size < 50 or 99.5 <= size < 100 else 0
+    rounded = round(size, decimals)
+    if size < 100 <= rounded:
+        rounded = 99.9
+    return ("+" if pct > 0 else MINUS) + f"{rounded:,.{decimals}f}"
+
+
 def percent_change(pct: float) -> tuple[str, Direction]:
     """Signed change with arrow: `▲ +14.2 %`, `▼ −87 %`, `± 0.0 %`.
 
-    One decimal below 50 %, none from 50 % on. Returns the text and the
-    direction, so the caller picks the `rise`/`fall` colour; the arrow and sign
-    carry the meaning on their own (never colour alone).
+    Rounding as in `_signed_pct`. Returns the text and the direction, so the caller
+    picks the `rise`/`fall` colour; the arrow and sign carry the meaning on their own
+    (never colour alone).
     """
-    decimals = 1 if abs(pct) < 50 else 0
-    rounded = round(pct, decimals)
-    if rounded == 0:
-        return f"± {0:.{decimals}f} %", "flat"
-    arrow = RISE if rounded > 0 else FALL
-    return f"{arrow} {signed_number(rounded, decimals)} %", direction(rounded)
+    if pct == 0:
+        return "± 0.0 %", "flat"
+    arrow = RISE if pct > 0 else FALL
+    return f"{arrow} {_signed_pct(pct)} %", direction(pct)
 
 
 def local_datetime(ts: datetime) -> str:
@@ -164,9 +181,15 @@ def _finite(x) -> bool:
 def signed_percent(fraction: float) -> str:
     """A signed percentage without arrow, for foot lines: `−4.1 %` (same rounding)."""
     pct = fraction * 100
-    decimals = 1 if abs(pct) < 50 else 0
-    text = signed_number(round(pct, decimals), decimals)
-    return f"{text if text[0] in '+' + MINUS else '± ' + text} %"
+    return "± 0.0 %" if pct == 0 else f"{_signed_pct(pct)} %"
+
+
+def decimal(value: float, decimals: int = 2) -> str:
+    """An unsigned-looking number with a real minus for negatives: `−0.30`, `0.86`."""
+    text = f"{abs(float(value)):,.{decimals}f}"
+    if float(value) < 0 and float(text.replace(",", "")) != 0:
+        return MINUS + text
+    return text
 
 
 def change(fraction: float | None) -> dict | None:

@@ -8,6 +8,7 @@ import pytest
 
 from coppertrail.collector.store import TABLES, Store, to_arrow
 from coppertrail.patterns.base import PatternResult, events_frame
+from coppertrail.query.catalog import Item
 from coppertrail.query.groups import load_groups
 from coppertrail.ui import viewdata as vd
 from coppertrail.ui.app import js_facade
@@ -116,11 +117,14 @@ def test_overview_tiles_and_charts(market, config_dir):
 
 
 def test_overview_rhythm_needs_a_week(market, config_dir):
+    # The archive covers 8 days: only the 24 h range is too short, so no ready date.
     b = Bridge(market, now=NOW)
     b.set_filters({"range": "24h"})
     gap = b.overview()["rhythm"]["gap"]
-    assert gap["title"] == "Needs 6 more days of data"
+    assert gap["title"] == "Needs at least 7 days"
     assert gap["progress"] == "1 of 7 days"
+    assert gap["ready"] == ""
+    assert "widen the date range to 7 d or All" in gap["why"]
 
 
 def test_overview_follows_filters_and_caches(market, config_dir):
@@ -336,3 +340,75 @@ def test_flat_rhythm_gets_one_label_per_series():
         PatternResult(charts={"market_day": md}), date(2026, 11, 10), date(2026, 11, 16), None
     )
     assert len(out["labels"]) == 2
+
+
+def test_memo_drops_results_of_a_computation_that_outlived_a_clear():
+    memo = Memo()
+
+    def during_pull():
+        memo.clear()  # a pull reloads while this computation runs
+        return "old"
+
+    assert memo.get("k", during_pull) == "old"
+    assert memo.get("k", lambda: "new") == "new"
+
+
+def test_memo_never_caches_inputs_from_an_older_generation():
+    memo = Memo()
+    gen = memo.generation
+    memo.clear()
+    assert memo.generation == gen + 1
+    assert memo.get("k", lambda: "old", gen) == "old"
+    assert memo.get("k", lambda: "new") == "new"
+
+
+def test_pull_during_a_computation_does_not_keep_stale_results(market, config_dir, monkeypatch):
+    b = Bridge(market, now=NOW)
+    gen = b.state()["generation"]
+    real = b._overview
+    calls = []
+
+    def racing(inp):
+        calls.append(1)
+        out = real(inp)
+        if len(calls) == 1:
+            b._load()  # the pull worker reloads before this result is stored
+        return out
+
+    monkeypatch.setattr(b, "_overview", racing)
+    b.overview()
+    assert not b.memo._futures  # neither the result nor its nested reads (week, economy)
+    assert b.state()["generation"] != gen  # the page's view keys change after a load
+    b.overview()
+    assert len(calls) == 2  # recomputed after the reload
+
+
+def test_item_detail_change_matches_the_item_list(market, config_dir):
+    b = Bridge(market, now=NOW)
+    row = next(r for r in b.item_list()["rows"] if r["id"] == 8170)
+    tile = next(t for t in b.item_detail(8170)["tiles"] if t["label"] == "Lowest buyout")
+    assert tile["foot"][0]["change"] == row["change"] == {"text": "▲ +50 %", "dir": "rise"}
+
+
+def test_week_change_ignores_a_partial_base_day():
+    # Item 2 has only 3 hourly rows on the base day: no "7 d" change, in list and header.
+    base, last = date(2026, 11, 9), date(2026, 11, 16)
+    daily = pd.DataFrame(
+        {
+            "item_id": [1, 1, 2, 2],
+            "day": [base, last, base, last],
+            "price": [100.0, 150.0, 10.0, 50.0],
+            "p25": [100.0, 150.0, 10.0, 50.0],
+            "qty": [1.0] * 4,
+            "hours": [24, 24, 3, 24],
+        }
+    )
+    changes = vd.week_change(daily)
+    assert changes.to_dict() == {1: 0.5}
+    empty = pd.DataFrame(columns=["p25", "quantity"])
+    partial = Item(2, "X", "Trade Goods", "COMMON", 60, 1.0)
+    tiles = vd.item_tiles(partial, None, empty, changes.get(2), None, base, last)
+    assert tiles[0]["foot"] == ["latest price table"]
+    full = Item(1, "Y", "Trade Goods", "COMMON", 160, 1.0)
+    tiles = vd.item_tiles(full, None, empty, changes.get(1), None, base, last)
+    assert tiles[0]["foot"][0]["change"] == {"text": "▲ +50 %", "dir": "rise"}

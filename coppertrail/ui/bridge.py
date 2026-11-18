@@ -31,7 +31,7 @@ from coppertrail.query.catalog import (
     default_data_dir,
     load_items,
 )
-from coppertrail.query.filtering import apply_filters, date_window, item_classes
+from coppertrail.query.filtering import RANGE_DAYS, apply_filters, date_window, item_classes
 from coppertrail.query.groups import ItemGroup, load_groups, save_groups
 from coppertrail.query.settings import Filters, load_settings, save_settings
 from coppertrail.ui import format as fmt
@@ -160,27 +160,84 @@ def history_gap(
     }
 
 
+def window_gap(name: str, *, needed: int, have: int) -> dict:
+    """The archive is long enough, but the selected date range is shorter than `needed` days.
+
+    Same shape as `history_gap`, without a ready date: widening the range fixes it now.
+    """
+    wider = [d for d in RANGE_DAYS.values() if d >= needed]
+    target = f"{min(wider)} d or All" if wider else "All"
+    return {
+        "title": f"Needs at least {plural(needed, 'day')}",
+        "why": (
+            f"“{name}” needs at least {plural(needed, 'day')} of history, but the date range "
+            f"covers {plural(have, 'day')}: widen the date range to {target}."
+        ),
+        "progress": f"{fmt.thousands(have)} of {plural(needed, 'day')}",
+        "ready": "",
+        "pct": round(100 * min(1.0, have / needed), 1) if needed else 100.0,
+    }
+
+
+def pattern_gap(
+    name: str, *, needed: int, window_days: int, archive_days: int, last_day: date | None
+) -> dict:
+    """Too little history: in the archive (with a ready date) or only in the date range."""
+    if archive_days >= needed:
+        return window_gap(name, needed=needed, have=window_days)
+    missing = needed - archive_days
+    return history_gap(
+        name,
+        needed=needed,
+        have=archive_days,
+        ready_on=last_day + timedelta(days=missing) if last_day else None,
+    )
+
+
+def archive_days(status: ArchiveStatus) -> int:
+    """Days the archive spans (first to last hourly day), 0 without data."""
+    if status.first_day is None or status.last_day is None:
+        return 0
+    return (status.last_day - status.first_day).days + 1
+
+
 class Memo:
     """A small LRU of futures: concurrent callers of one key wait for a single computation.
 
-    A failed computation is not kept, so the next call tries again.
+    A failed computation is not kept, so the next call tries again. `clear()` starts a new
+    generation: a computation that read its inputs in an older one (it began before a pull)
+    still returns its result, but the result is not kept, so it cannot outlive the reload.
     """
 
     def __init__(self, size: int = 128) -> None:
         self._lock = threading.Lock()
         self._futures: OrderedDict[Hashable, Future] = OrderedDict()
         self._size = size
+        self._generation = 0
 
-    def get(self, key: Hashable, compute: Callable[[], Any]) -> Any:
+    @property
+    def generation(self) -> int:
         with self._lock:
-            fut = self._futures.get(key)
-            owner = fut is None
-            if owner:
-                fut = self._futures[key] = Future()
-                while len(self._futures) > self._size:
-                    self._futures.popitem(last=False)
+            return self._generation
+
+    def get(self, key: Hashable, compute: Callable[[], Any], generation: int | None = None) -> Any:
+        """`generation`: the one the caller's inputs were read in (default: the current)."""
+        with self._lock:
+            gen = self._generation if generation is None else generation
+            if gen != self._generation:
+                stale = True
             else:
-                self._futures.move_to_end(key)
+                stale = False
+                fut = self._futures.get(key)
+                owner = fut is None
+                if owner:
+                    fut = self._futures[key] = Future()
+                    while len(self._futures) > self._size:
+                        self._futures.popitem(last=False)
+                else:
+                    self._futures.move_to_end(key)
+        if stale:
+            return compute()  # inputs from before the last clear(): never cached
         if owner:
             try:
                 fut.set_result(compute())
@@ -189,10 +246,16 @@ class Memo:
                 with self._lock:
                     if self._futures.get(key) is fut:
                         del self._futures[key]
+            else:
+                with self._lock:
+                    # Cleared while computing: drop it if a newer caller has not replaced it.
+                    if self._generation != gen and self._futures.get(key) is fut:
+                        del self._futures[key]
         return fut.result()
 
     def clear(self) -> None:
         with self._lock:
+            self._generation += 1
             self._futures.clear()
 
 
@@ -238,6 +301,7 @@ class ViewInputs:
     groups: list[ItemGroup]
     lo: date
     hi: date
+    generation: int = 0  # Memo generation the inputs were read in (see Memo.clear)
 
     @property
     def ids(self) -> list[int] | None:
@@ -392,6 +456,9 @@ class Bridge:
         )
         return {
             "dataDir": str(self.data_dir),
+            # Changes on every load (pull, folder change): part of the page's view keys, so
+            # the views ask again even when a pull added rows without a newer as_of.
+            "generation": self.memo.generation,
             "status": self._status(),
             "creditUrl": AHLEDGER_URL,
             "filters": f.to_json(),
@@ -568,7 +635,12 @@ class Bridge:
                 groups=[group_from_dict(group_to_dict(g)) for g in self.groups],
                 lo=lo,
                 hi=hi,
+                generation=self.memo.generation,
             )
+
+    def _memo(self, inp: ViewInputs, key: Hashable, compute: Callable[[], Any]) -> Any:
+        """Memo.get in the generation `inp` was read in: a pull meanwhile keeps it uncached."""
+        return self.memo.get(key, compute, inp.generation)
 
     def _week(self, inp: ViewInputs) -> pd.DataFrame:
         """The daily table over the archive's last days, all items (every "7 d" figure)."""
@@ -580,16 +652,18 @@ class Bridge:
             first = last - timedelta(days=WEEK_READ_DAYS)
             return vd.daily_table(series.hourly(inp.data_dir, None, first, last))
 
-        return self.memo.get(("week", str(inp.data_dir), inp.status.as_of), compute)
+        return self._memo(inp, ("week", str(inp.data_dir), inp.status.as_of), compute)
 
     def _economy(self, inp: ViewInputs) -> pd.DataFrame:
-        return self.memo.get(
+        return self._memo(
+            inp,
             ("economy", str(inp.data_dir), inp.status.as_of),
             lambda: series.economy(inp.data_dir),
         )
 
     def _details(self, inp: ViewInputs) -> dict[int, dict]:
-        return self.memo.get(
+        return self._memo(
+            inp,
             ("details", str(inp.data_dir), inp.status.as_of),
             lambda: item_details(inp.data_dir),
         )
@@ -597,7 +671,7 @@ class Bridge:
     def overview(self) -> dict:
         """Market overview without "What changed" (that is `overview_events`, slower)."""
         inp = self._inputs()
-        return self.memo.get(("overview", *inp.key), lambda: self._overview(inp))
+        return self._memo(inp, ("overview", *inp.key), lambda: self._overview(inp))
 
     def _overview(self, inp: ViewInputs) -> dict:
         lo, hi = inp.lo, inp.hi
@@ -647,9 +721,12 @@ class Bridge:
         result = run_pattern("daily_rhythm", ctx)
         gap = None
         if not result.ready:
-            have = result.days_used
-            gap = history_gap(
-                result.title, needed=have + result.needs_days, have=have, ready_on=result.ready_on
+            gap = pattern_gap(
+                result.title,
+                needed=REGISTRY["daily_rhythm"].min_days,
+                window_days=result.days_used,
+                archive_days=archive_days(inp.status),
+                last_day=inp.status.last_day or inp.hi,
             )
         out = vd.rhythm_chart(result, inp.lo, inp.hi, gap)
         shown = {i.item_id for i in inp.shown}
@@ -660,7 +737,7 @@ class Bridge:
     def overview_events(self) -> dict:
         """What changed: events of the last 7 archive days for the filtered items."""
         inp = self._inputs()
-        return self.memo.get(("events", *inp.key), lambda: self._overview_events(inp))
+        return self._memo(inp, ("events", *inp.key), lambda: self._overview_events(inp))
 
     def _overview_events(self, inp: ViewInputs) -> dict:
         last = inp.status.last_day
@@ -690,12 +767,12 @@ class Bridge:
             changes = vd.week_change(self._week(inp))
             return vd.item_list(inp.shown, changes, self._details(inp), sort, LIST_ROWS, pin)
 
-        return self.memo.get(("list", sort, pin, *inp.key), compute)
+        return self._memo(inp, ("list", sort, pin, *inp.key), compute)
 
     def item_detail(self, item_id: int) -> dict:
         inp = self._inputs()
-        return self.memo.get(
-            ("item", int(item_id), *inp.key), lambda: self._item(inp, int(item_id))
+        return self._memo(
+            inp, ("item", int(item_id), *inp.key), lambda: self._item(inp, int(item_id))
         )
 
     def _item(self, inp: ViewInputs, item_id: int) -> dict:
@@ -729,7 +806,7 @@ class Bridge:
                 item,
                 snap.iloc[-1] if len(snap) else None,
                 window,
-                vd.week_base_price(self._week(inp), item_id),
+                vd.week_change(self._week(inp)).get(item_id),  # as in the item list
                 vendor,
                 lo,
                 hi,
@@ -745,30 +822,43 @@ class Bridge:
 
     def _pattern_ctx(self, inp: ViewInputs) -> Context:
         """One Context per inputs: every job (and every row click) reads hourly once."""
-        return self.memo.get(
-            ("pctx", *inp.key), lambda: Context(inp.data_dir, inp.ids, inp.lo, inp.hi)
+        return self._memo(
+            inp, ("pctx", *inp.key), lambda: Context(inp.data_dir, inp.ids, inp.lo, inp.hi)
         )
 
     def _pattern_run(self, inp: ViewInputs, key: str) -> PatternResult:
         ctx = self._pattern_ctx(inp)
-        return self.memo.get(("prun", key, *inp.key), lambda: run_pattern(key, ctx))
+        return self._memo(inp, ("prun", key, *inp.key), lambda: run_pattern(key, ctx))
 
-    def _waiting(self, inp: ViewInputs) -> set[str]:
-        """Jobs whose input the collector has not filled yet (recipes, builds, vendor prices)."""
+    def _waiting(self, inp: ViewInputs) -> tuple[set[str], dict[str, str]]:
+        """(waiting, empty): jobs whose input the collector has not filled yet at all
+        (recipes, builds, vendor prices), and jobs whose input exists but not in the
+        selected date range or filter (key -> note for the table).
 
-        def compute() -> set[str]:
+        Emptiness is tested on the whole archive, not on the windowed Context.
+        """
+
+        def compute() -> tuple[set[str], dict[str, str]]:
             ctx = self._pattern_ctx(inp)
-            out = set()
-            if ctx.recipes.empty:
-                out.add("processing_spreads")
-            if ctx.builds.empty:
-                out.add("build_effects")
-            d = ctx.details
-            if d.empty or not (pd.to_numeric(d["vendor_price"], errors="coerce") > 0).any():
-                out.add("vendor_floor")
-            return out
+            waiting: set[str] = set()
+            empty: dict[str, str] = {}
+            if ctx.recipes.empty:  # recipes are never windowed or filtered
+                waiting.add("processing_spreads")
+            if series.builds(inp.data_dir).empty:
+                waiting.add("build_effects")
+            elif ctx.builds.empty:
+                empty["build_effects"] = pv.NO_BUILDS_IN_RANGE
 
-        return self.memo.get(("waiting", *inp.key), compute)
+            def has_vendor(d: pd.DataFrame) -> bool:
+                return bool((pd.to_numeric(d["vendor_price"], errors="coerce") > 0).any())
+
+            if not has_vendor(series.item_details(inp.data_dir)):
+                waiting.add("vendor_floor")
+            elif not has_vendor(ctx.details):
+                empty["vendor_floor"] = pv.NO_VENDOR_IN_FILTER
+            return waiting, empty
+
+        return self._memo(inp, ("waiting", *inp.key), compute)
 
     def patterns(
         self,
@@ -782,7 +872,8 @@ class Bridge:
         key = key if key in REGISTRY else pv.DEFAULT_KEY
         item = None if item is None else int(item)
         select = None if select is None else str(select)
-        return self.memo.get(
+        return self._memo(
+            inp,
             ("patterns", key, select, item, sort, *inp.key),
             lambda: self._patterns(inp, key, select, item, sort),
         )
@@ -792,15 +883,17 @@ class Bridge:
     ) -> dict:
         spec = REGISTRY[key]
         st = inp.status
-        history = (st.last_day - st.first_day).days + 1 if st.first_day and st.last_day else 0
+        history = archive_days(st)
         ctx = self._pattern_ctx(inp)
-        waiting = self._waiting(inp)
+        waiting, empty = self._waiting(inp)
         out: dict[str, Any] = {
             "sub": (
                 f"{fmt.thousands(len(inp.shown))} of {plural(len(inp.items), 'item')}"
                 f" · {plural(history, 'day')} of history"
             ),
-            "tabs": pv.tabs(ctx.days, waiting),
+            # "needs data" only when the archive is short: a short date range is the
+            # user's choice and the tab explains it (window_gap).
+            "tabs": pv.tabs(history, waiting),
             "key": key,
             "title": spec.title,
         }
@@ -812,17 +905,22 @@ class Bridge:
         if not result.ready:
             if not result.days_used:
                 out["basis"]["lead"] = "No data yet"
-            out["basis"]["text"] = (
-                f" of data so far · needs {plural(spec.min_days, 'day')}"
-                if result.days_used
-                else ""
-            )
+            short_archive = history < spec.min_days
+            if not result.days_used:
+                out["basis"]["text"] = ""
+            elif short_archive:
+                out["basis"]["text"] = f" of data so far · needs {plural(spec.min_days, 'day')}"
+            else:
+                out["basis"]["text"] = (
+                    f" in this date range · needs at least {plural(spec.min_days, 'day')}"
+                )
             out["state"] = "history"
-            out["gap"] = history_gap(
+            out["gap"] = pattern_gap(
                 spec.title,
                 needed=spec.min_days,
-                have=result.days_used,
-                ready_on=result.ready_on,
+                window_days=result.days_used,
+                archive_days=history,
+                last_day=st.last_day or inp.hi,
             )
             return out
         if key in waiting:
@@ -833,6 +931,8 @@ class Bridge:
             body = pv.build(result, ctx, select=select, item=item, sort=sort)
         except Exception as exc:  # noqa: BLE001
             return {**out, "state": "error", "error": _failed(exc)}
+        if key in empty and not body["table"]["rows"]:
+            body["table"]["note"] = empty[key]
         return {**out, "state": "ready", **body}
 
     # Movers & outliers --------------------------------------------------------------------
@@ -851,7 +951,7 @@ class Bridge:
             hourly = series.hourly(inp.data_dir, inp.ids, first, last)
             return {"sub": sub, **mv.movers(hourly, inp.shown, rng)}
 
-        return self.memo.get(("movers", rng, *inp.key), compute)
+        return self._memo(inp, ("movers", rng, *inp.key), compute)
 
     def mispricings_now(self, threshold: float = mv.DEFAULT_THRESHOLD) -> dict:
         """Current mispricings (job `mispricings` over the last two days of scans)."""
@@ -863,8 +963,8 @@ class Bridge:
             if last is None or not inp.shown:
                 return mv.mispricings_now(None, pd.DataFrame(), [], {}, threshold)
             ctx = Context(inp.data_dir, inp.ids, last - timedelta(days=1), last)
-            result = self.memo.get(
-                ("mnow", *inp.key), lambda: (run_pattern("mispricings", ctx), ctx)
+            result = self._memo(
+                inp, ("mnow", *inp.key), lambda: (run_pattern("mispricings", ctx), ctx)
             )
             res, ctx = result
             group_of: dict[int, str] = {}
@@ -875,7 +975,7 @@ class Bridge:
                         break
             return mv.mispricings_now(res, ctx.scans, inp.shown, group_of, threshold)
 
-        return self.memo.get(("mispricings_now", threshold, *inp.key), compute)
+        return self._memo(inp, ("mispricings_now", threshold, *inp.key), compute)
 
     def add_to_group(self, name: str, item_id: int) -> dict:
         """Adds one item to a group (by id) and saves the groups."""

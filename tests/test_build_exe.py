@@ -68,3 +68,66 @@ def test_spec_bundles_only_the_web_front_end():
     assert 'datas=[(str(WEB), "coppertrail/ui/web")]' in spec
     assert "private" not in spec
     assert 'gui="qt"' not in spec
+
+
+def test_bundle_check_rejects_qt_modules_inside_the_pyz():
+    check = _build_script().check_bundle
+    assert check(GOOD, ["coppertrail.ui.app", "webview.platforms.winforms"]) == []
+    for mod in (
+        "PySide6.QtCore",
+        "PyQt5",
+        "qtpy",
+        "pyqtgraph.graphicsItems",
+        "webview.platforms.qt",
+    ):
+        assert any("Qt module" in p for p in check(GOOD, [mod])), mod
+
+
+def test_bundle_check_rejects_data_files():
+    check = _build_script().check_bundle
+    for name in (
+        "coppertrail\\ui\\web\\data\\prices.csv",
+        "coppertrail\\ui\\web\\prices.json",
+        "somepkg\\prices.arrow",
+        "somepkg\\prices.feather",
+        "somepkg\\export.xlsx",
+        "somepkg\\hourly.csv",
+        "private\\archive.duckdb",
+    ):
+        assert check([*GOOD, name]), name
+    # Libraries' own metadata outside the web folder is fine (pythonnet needs this one).
+    assert check([*GOOD, "pythonnet\\runtime\\Python.Runtime.deps.json"]) == []
+
+
+def test_bundle_check_allows_only_front_end_files_in_the_web_folder():
+    check = _build_script().check_bundle
+    fine = [
+        "coppertrail\\ui\\web\\css\\tokens.css",
+        "coppertrail\\ui\\web\\js\\main.js",
+        "coppertrail\\ui\\web\\icons\\app.svg",
+        "coppertrail\\ui\\web\\fonts\\Caudex-Regular.ttf",
+        "coppertrail\\ui\\web\\fonts\\OFL-Caudex.txt",
+        "coppertrail\\ui\\web\\vendor\\uPlot-LICENSE",
+    ]
+    assert check([*GOOD, *fine]) == []
+    assert any("not a front-end file" in p for p in check([*GOOD, "coppertrail\\ui\\web\\x.pkl"]))
+
+
+def test_bundle_modules_reads_the_embedded_pyz(tmp_path, monkeypatch):
+    build = _build_script()
+
+    class FakePyz:
+        toc = {"coppertrail": 0, "PySide6.QtCore": 0}
+
+    class FakeReader:
+        def __init__(self, path):
+            self.toc = {"PYZ.pyz": (0, 0, 0, 0, "z"), "base_library.zip": (0, 0, 0, 0, "x")}
+
+        def open_embedded_archive(self, name):
+            assert name == "PYZ.pyz"
+            return FakePyz()
+
+    import PyInstaller.archive.readers as readers
+
+    monkeypatch.setattr(readers, "CArchiveReader", FakeReader)
+    assert build.bundle_modules(tmp_path / "x.exe") == ["PySide6.QtCore", "coppertrail"]

@@ -142,14 +142,6 @@ def week_change(daily: pd.DataFrame) -> pd.Series:
     return (p["last"] / p["base"] - 1).rename("change")
 
 
-def week_base_price(daily: pd.DataFrame, item_id: int) -> float | None:
-    days = week_days(daily)
-    if days is None:
-        return None
-    row = daily[(daily["item_id"] == item_id) & (daily["day"] == days[0])]
-    return float(row["price"].iloc[0]) if len(row) and finite(row["price"].iloc[0]) else None
-
-
 def week_supply(daily: pd.DataFrame) -> tuple[float | None, float | None]:
     """(change of the summed daily mean quantity, last day's sum), items on both days."""
     days = week_days(daily)
@@ -522,18 +514,20 @@ def item_tiles(
     item: Item,
     snapshot: pd.Series | None,
     window: pd.DataFrame,
-    base_price: float | None,
+    week_change: float | None,
     vendor_price: int | None,
     lo: date,
     hi: date,
 ) -> list[dict]:
+    """`week_change`: the item's `week_change()` value (full CET days at both ends), so the
+    header's "vs 7 d ago" and the item list show the same number."""
     low = item.min_buyout
     median_7d = None if snapshot is None else snapshot.get("median_7d")
     p25 = window["p25"].tail(24 * WEEK).median() if len(window) else None
     qty = window["quantity"].dropna()
     days = (hi - lo).days + 1
     qty_change = float(qty.iloc[-1] / qty.mean() - 1) if len(qty) and qty.mean() > 0 else None
-    price_change = (low / base_price - 1) if low and base_price else None
+    price_change = float(week_change) if finite(week_change) else None
     vendor_foot: list = ["not collected yet"]
     if vendor_price:
         vendor_foot = (

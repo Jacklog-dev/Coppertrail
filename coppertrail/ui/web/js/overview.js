@@ -14,7 +14,7 @@ const index1 = (v) => v.toFixed(1); // index tooltip values (chart formatting)
 
 /** render(container, state, banner, nav) */
 export function render(container, state, banner, nav) {
-  const key = JSON.stringify([state.dataDir, state.status.lastPoint, state.filters, state.groups, state.window]);
+  const key = JSON.stringify([state.dataDir, state.generation, state.status.lastPoint, state.filters, state.groups, state.window]);
   const head = viewHead("Market overview", state.items.sub);
   host.show(container, banner, key, head, async (root, isCurrent) => {
     const data = await call("overview");

@@ -20,7 +20,7 @@ const pick = { range: RANGES.some((r) => r.key === deepLink?.[1]) ? deepLink[1] 
 
 /** render(container, state, banner, nav) */
 export function render(container, state, banner, nav) {
-  const key = JSON.stringify([state.dataDir, state.status.lastPoint, state.filters, state.groups]);
+  const key = JSON.stringify([state.dataDir, state.generation, state.status.lastPoint, state.filters, state.groups]);
   host.show(container, banner, key, head(state.items.sub, null), async (root, isCurrent) => {
     const [moves, mis] = await Promise.all([call("movers", pick.range), call("mispricings_now", pick.threshold)]);
     if (!isCurrent()) return;
