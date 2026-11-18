@@ -98,8 +98,8 @@ def test_bundle_check_rejects_data_files():
     # Libraries' own metadata outside the web folder is fine (pythonnet needs this one).
     assert check([*GOOD, "pythonnet\\runtime\\Python.Runtime.deps.json"]) == []
     # The icon map is the one JSON file the web folder may hold.
-    assert check([*GOOD, "coppertrail\\ui\\web\\data\\icons.json"]) == []
-    assert check([*GOOD, "coppertrail\\ui\\web\\data\\other.json"])
+    assert check([*GOOD, "coppertrail\\ui\\web\\icon-map.json"]) == []
+    assert check([*GOOD, "coppertrail\\ui\\web\\other.json"])
 
 
 def test_bundle_check_allows_only_front_end_files_in_the_web_folder():
