@@ -4,7 +4,7 @@ Date: 2026-11-18. Status: design, waiting for Jack's approval.
 
 ## Intent
 
-Coppertrail switches its data source to Blizzard's official Game Data API and removes the old third-party source completely: its code, its data and every mention of it. Search term for leftovers: `ahledger`, case-insensitive. This is Jack's decision. His reasons: the official API is the better source, the old source never answered, and he wants no affiliation with it. Losing the history collected since 2026-11-12 is fine with him; the game has been live for two weeks.
+Coppertrail switches its data source to Blizzard's official Game Data API and removes the old third-party source completely: its code, its data and every mention of it. A test searches the tree for leftovers. This is Jack's decision. His reasons: the official API is the better source, the old source never answered, and he wants no affiliation with it. Losing the history collected since 2026-11-12 is fine with him; the game has been live for two weeks.
 
 ## Goals
 
@@ -64,7 +64,7 @@ Coppertrail switches its data source to Blizzard's official Game Data API and re
 - GitHub Actions in the private data repo (Jack's decision, 2026-11-18). Never the public repo: logs and artifacts there are public.
 - Minutes: a private repo on the free plan has 2,000 minutes a month (Jack's figure, not re-verified). Hourly runs of about 2 minutes plus one nightly job come to about 1,500 minutes a month.
 - The selected items fit the size budget: 1,642 items today, a 34 KB hour file, about 0.8 MB a day.
-- The collector is platform-neutral Python (pathlib, no Windows-only calls). Credentials come from `BLIZZARD_CLIENT_ID` / `BLIZZARD_CLIENT_SECRET`, otherwise from `blizzard.toml` in the Coppertrail config folder (as in `scripts/probe_blizzard.py`).
+- The collector is platform-neutral Python (pathlib, no Windows-only calls). Credentials come from `BLIZZARD_CLIENT_ID` / `BLIZZARD_CLIENT_SECRET`, otherwise from `blizzard.toml` in the Coppertrail config folder.
 
 ## Approaches considered
 
@@ -217,7 +217,7 @@ P is the previous run's listings: a compact Parquet file (`auction_id, item_id, 
    5. Start the first run by hand.
    - GitHub lets an owner restore a deleted repo for 90 days. Only GitHub Support can purge it sooner.
 4. Public repo:
-   1. Check that `git grep -i ahledger` on the final tree is empty.
+   1. Check that `tests/test_no_old_source.py` passes on the final tree.
    2. Replace the whole history with a single new root commit of the final tree on `main` and `dev`, and force-push both.
    3. Delete all `claude/*` branches and their worktrees.
    4. Restart `CHANGELOG.md` without the old entries.
@@ -237,7 +237,7 @@ P is the previous run's listings: a compact Parquet file (`auction_id, item_id, 
   - the window-branch rebuild (on a temp git repo);
   - pull with a rewritten branch.
 - The existing pattern and GUI tests are moved onto the new frames.
-- A test fails if `ahledger` (case-insensitive) appears in any tracked file.
+- A test (`tests/test_no_old_source.py`) fails if the old source's name appears in any tracked file.
 
 ## Left to the builder
 

@@ -1,3 +1,3 @@
-"""Coppertrail: auction house analysis for WoW Forever. Prices from AHledger (https://ahledger.com)."""
+"""Coppertrail: auction house analysis for WoW Forever. Data from Blizzard's Game Data API."""
 
 __version__ = "0.1.0"

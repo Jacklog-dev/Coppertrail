@@ -11,7 +11,7 @@ Jack does not want Qt in his hobby apps (personal reasons, not up for discussion
 - A native desktop window (HANDOVER 8a: "a real application window, not generated HTML pages") whose content is HTML/CSS/JS rendered by the OS web engine, driven by Python.
 - Reach the same state the Qt GUI had: theme + style sample (6.1), window frame with nav rail, filter bar, group editor, status strip and four placeholder views (6.2). Then continue with 6.3 onward on the new stack.
 - Match the mock-ups in `private/handover/mockups-html/` closely; they are HTML already, so their CSS is the starting point.
-- Keep every HANDOVER 8a/8b rule: data only through the query layer, the only network action is "Pull latest data", tokens as the single source of colours/fonts/sizes, restraint rules, coin and percent conventions, AHledger credit always visible.
+- Keep every HANDOVER 8a/8b rule: data only through the query layer, the only network action is "Pull latest data", tokens as the single source of colours/fonts/sizes, restraint rules, coin and percent conventions, data source credit always visible.
 
 ## Non-goals
 

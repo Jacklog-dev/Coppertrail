@@ -3,7 +3,7 @@
 #     uv run python scripts/build_exe.py      (wraps: uv run pyinstaller packaging/coppertrail.spec)
 #
 # Bundles the code and `coppertrail/ui/web/` (HTML/CSS/JS, vendored uPlot, fonts, icons) and
-# nothing else: collected market data must never ship (AHledger terms). No Qt: the Qt
+# nothing else: collected market data must never ship (Blizzard API terms). No Qt: the Qt
 # bindings are excluded outright and pywebview only gets its Windows backends.
 # ruff: noqa
 

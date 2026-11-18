@@ -52,5 +52,5 @@ jobs:
           GH_REPO: ${{ github.repository }}  # no checkout here, so gh needs the repo
           TAG: ${{ github.ref_name }}
         run: |
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --verify-tag --title "$TAG" --notes "Coppertrail $TAG. Prices from AHledger (https://ahledger.com). Ships no market data."
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --verify-tag --title "$TAG" --notes "Coppertrail $TAG. Data: Blizzard Entertainment API, not affiliated with or endorsed by Blizzard. Ships no market data."
           gh release upload "$TAG" dist/Coppertrail.exe --clobber

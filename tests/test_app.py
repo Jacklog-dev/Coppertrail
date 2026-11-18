@@ -8,6 +8,8 @@ from coppertrail.ui.devserver import WEB_DIR
 from coppertrail.ui.format import CREDIT_TEXT, CREDIT_URL
 from coppertrail.ui.screenshot import edge_command
 
+OLD_SOURCE = "ah" + "ledger"  # built from parts so the search does not match itself
+
 
 def test_backend_never_qt():
     assert gui_backend("win32") == "edgechromium"
@@ -62,7 +64,7 @@ def test_web_credit_and_first_pull_text():
     )
     for f in WEB_DIR.rglob("*"):
         if f.suffix in {".html", ".css", ".js"} and "vendor" not in f.parts:
-            assert "ahledger" not in f.read_text(encoding="utf-8").lower(), f
+            assert OLD_SOURCE not in f.read_text(encoding="utf-8").lower(), f
 
 
 def test_pull_runs_in_background_and_emits(archive, config_dir):

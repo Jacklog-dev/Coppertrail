@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SPEC = ROOT / "packaging" / "coppertrail.spec"
 DIST = ROOT / "dist"
 EXE = DIST / "Coppertrail.exe"
-# Never in the bundle: AHledger data may not be redistributed. Qt must not be in it either.
+# Never in the bundle: collected API data may not be redistributed. Qt must not be in it either.
 # Data formats anywhere (outside the web folder libraries may ship .json metadata, such as
 # pythonnet's Python.Runtime.deps.json, so .json is only refused there).
 FORBIDDEN_SUFFIXES = (

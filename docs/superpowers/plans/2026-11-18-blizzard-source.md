@@ -569,7 +569,7 @@ def test_missing_tables_give_typed_empty_frames(tmp_path): ...
 - Produces:
   - `catalog.archive_status(data_dir) -> ArchiveStatus` with `first_hour, last_hour, hours, missing_hours_7d, stale` (stale = last hour older than 3 h).
   - Archive-cutoff fields are removed.
-  - The bridge state has `creditText` and `creditUrl` from `format`. `AHLEDGER_URL` is removed. The economy panels read `house`. Movers read `hourly`.
+  - The bridge state has `creditText` and `creditUrl` from `format`. The old source's URL constant is removed. The economy panels read `house`. Movers read `hourly`.
 
 - [ ] **Step 1:** Rewrite the fixture and the GUI tests against the new archive. The bridge test asserts `state["creditText"] == CREDIT_TEXT` and no key containing `cutoff`.
 - [ ] **Step 2:** Run `uv run pytest tests/test_bridge*.py tests/test_ui_*.py tests/test_query_*.py -q`. Expected: FAIL.
@@ -656,7 +656,7 @@ def test_main_not_fast_forward_reports_failure(tmp_path): ...
   - Replace every passage about the old source with the Blizzard facts from the spec's "Verified API facts" section, or delete the passage.
   - Delete section 5's numbers (they were computed from the old data). Keep the definitions.
   - Change the status-strip credit in the mockups to `CREDIT_TEXT` (Task 4.1).
-- [ ] **Step 3:** Check: `grep -ril ahledger private-next/handover` prints nothing.
+- [ ] **Step 3:** Check: a case-insensitive search of `private-next/handover` for the old source's name finds nothing.
 - [ ] **Step 4:** Report the list of changed files and sections. There's no commit, because this folder is not in git yet.
 
 ---
@@ -708,10 +708,10 @@ def test_main_not_fast_forward_reports_failure(tmp_path): ...
 - Modify or delete what it finds:
   - `CLAUDE.md` (rewrite the sections on API facts, repos and the collector for Blizzard);
   - `CHANGELOG.md` (restart under `## 0.0.1 [Core]` with only current-state bullets);
-  - `docs/own-scans-research.md` (delete);
+  - the own-scans research note (delete);
   - older specs and plans under `docs/superpowers/` (delete the ones about the old collector; scrub the rest);
   - this plan and its spec (replace the search term with "the old source");
-  - `scripts/probe_blizzard.py` and `scripts/ah_snapshot.py` (delete; the collector supersedes them);
+  - the probe and snapshot scripts in `scripts/` (delete; the collector supersedes them);
   - `packaging/`, `.github/workflows/build-exe.yml`, `scripts/build_exe.py`, `pyproject.toml`, `coppertrail/__init__.py`.
 - Delete: the `coppertrail/collector/legacy/` package.
 
@@ -728,7 +728,7 @@ def test_main_not_fast_forward_reports_failure(tmp_path): ...
   - `git reflog expire --expire=now --all && git gc --prune=now`
 - [ ] **Step 2:** Check: `git log --all --oneline | wc -l` prints 1, and `git rev-list --all --objects | git cat-file --batch-check | wc -l` matches a fresh clone.
 - [ ] **Step 3:** Ask: "Delete the old `private/` clone, `data/`, `build/` and `dist/` on this PC, then clone the new data repo into `private/`?" On yes, do it, and then move `private-next/handover` into place if it isn't already pushed.
-- [ ] **Step 4:** Update the memory: delete `ahledger-archive-cutoff.md` and its index line; add a `project` memory on the Blizzard source, house 111 and the 30-day rule with Jack's reading.
+- [ ] **Step 4:** Update the memory: delete the old archive-cutoff memory and its index line; add a `project` memory on the Blizzard source, house 111 and the 30-day rule with Jack's reading.
 - [ ] **Step 5:** Tell Jack what is left for him: old session transcripts under `~/.claude`, the `wow-forever-ah-check` skill, and the 90-day GitHub restore window.
 
 ### Task 7.3: End-to-end check
