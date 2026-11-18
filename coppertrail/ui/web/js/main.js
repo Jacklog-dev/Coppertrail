@@ -4,6 +4,7 @@
 import { call, inApp, on } from "./api.js";
 import { replace } from "./dom.js";
 import { preload } from "./icons.js";
+import { loadIcons } from "./itemicon.js";
 import * as navrail from "./navrail.js";
 import * as states from "./states.js";
 import * as statusstrip from "./statusstrip.js";
@@ -165,4 +166,5 @@ async function openCredit(event) {
 
 await preload("overview", "item", "patterns", "movers", "folder", "download", "external", "refresh", "clock", "sliders", "reset", "zoom", "search", "star", "chevron");
 render(); // loading state until the bridge answers
-render(await call("state"));
+const [first] = await Promise.all([call("state"), loadIcons()]);
+render(first);

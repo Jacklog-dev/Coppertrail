@@ -33,6 +33,8 @@ WEB_SUFFIXES = (
     ".html", ".css", ".js", ".mjs", ".svg", ".png", ".ico", ".woff", ".woff2", ".ttf", ".otf",
     ".txt",
 )  # fmt: skip
+# Exact paths allowed besides those: the item -> icon file id map (numbers, no market data).
+WEB_ALLOWED = ("coppertrail/ui/web/icon-map.json",)
 REQUIRED = ("coppertrail/ui/web/index.html", "coppertrail/ui/web/vendor/")
 
 
@@ -56,7 +58,7 @@ def bundle_modules(exe: Path) -> list[str]:
 
 def _web_file_ok(name: str) -> bool:
     base = name.rsplit("/", 1)[-1]
-    return name.endswith(WEB_SUFFIXES) or "license" in base
+    return name.endswith(WEB_SUFFIXES) or "license" in base or name in WEB_ALLOWED
 
 
 def check_bundle(names: list[str], modules: list[str] = ()) -> list[str]:

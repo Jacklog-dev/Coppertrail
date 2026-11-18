@@ -41,8 +41,9 @@ export function staleTail(state) {
 }
 
 /** View header: h1 + sub, optional tools on the right. */
-export function viewHead(title, sub, tools = null) {
-  return el("header", { class: "view-head" }, el("div", {}, el("h1", { class: "h1", text: title }), el("p", { class: "sub", text: sub })), tools);
+export function viewHead(title, sub, tools = null, lead = null) {
+  const text = el("div", {}, el("h1", { class: "h1", text: title }), el("p", { class: "sub", text: sub }));
+  return el("header", { class: "view-head" }, lead ? el("div", { class: "head-lead" }, lead, text) : text, tools);
 }
 
 /** Puts the stale banner above `root` without rebuilding the view. */

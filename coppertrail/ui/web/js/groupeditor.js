@@ -4,6 +4,7 @@
 import { call } from "./api.js";
 import { coin } from "./coins.js";
 import { el, replace } from "./dom.js";
+import { withIcon } from "./itemicon.js";
 import { icon } from "./icons.js";
 
 const SEARCH_DELAY_MS = 200;
@@ -209,7 +210,7 @@ export function openGroupEditor(state, { newGroup = false, onState }) {
           el(
             "tr",
             {},
-            el("td", { text: r.name }),
+            el("td", {}, withIcon(r.id, r.name)),
             el("td", { class: "muted", text: r.class }),
             el("td", { class: "num" }, coin(r.price)),
             el("td", { class: "num ge-x" }, el("button", { attrs: { "aria-label": `Remove ${r.name}`, title: "Remove from group" }, on: { click: () => removeId(r.id) } }, icon("x", 14))),
@@ -264,7 +265,7 @@ export function openGroupEditor(state, { newGroup = false, onState }) {
           },
         },
         el("span", { class: "check", attrs: { "aria-checked": on ? "true" : "false" } }, on ? icon("check", 12) : null),
-        el("span", { class: "name", text: r.name }),
+        el("span", { class: "name" }, withIcon(r.id, r.name)),
         coin(r.price),
       );
     });

@@ -33,6 +33,7 @@ from coppertrail.query.filtering import RANGE_DAYS, apply_filters, date_window, 
 from coppertrail.query.groups import ItemGroup, load_groups, save_groups
 from coppertrail.query.settings import Filters, load_settings, save_settings
 from coppertrail.ui import format as fmt
+from coppertrail.ui import icons
 from coppertrail.ui import movers as mv
 from coppertrail.ui import patternview as pv
 from coppertrail.ui import viewdata as vd
@@ -341,6 +342,7 @@ class Bridge:
         "patterns",
         "movers",
         "mispricings_now",
+        "icons",
     )
     # Called without the bridge lock (js_facade, dev server): they copy their inputs under
     # it and run the slow part (pattern jobs) unlocked, so the filter bar stays responsive.
@@ -569,6 +571,11 @@ class Bridge:
     def group_members(self, group: dict) -> list[dict]:
         g = group_from_dict(group)
         return [item_row(i) for i in sorted(g.members(self.items), key=lambda i: i.name.casefold())]
+
+    def icons(self) -> dict:
+        """The whole icon map, so a folder change needs no reload: `url` with `{}` for the
+        file id and `ids` {item id: file id} (see `icons.py`). Small: numbers only."""
+        return {"url": icons.ICON_URL, "ids": {str(k): v for k, v in icons.load_map().items()}}
 
     def search_items(self, text: str, group: dict) -> dict:
         """Items whose name contains `text` and that are not in `group` yet."""

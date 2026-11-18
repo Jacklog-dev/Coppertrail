@@ -190,3 +190,12 @@ def test_choosing_unreadable_folder_keeps_app_startable(archive, tmp_path, confi
     assert st["status"]["error"] is True
     Bridge()  # the next start reads the saved (bad) folder and must still open
     assert Bridge(archive).state()["status"]["error"] is False
+
+
+def test_icons_payload_is_url_template_and_ids(archive, config_dir, monkeypatch):
+    from coppertrail.ui import icons
+
+    monkeypatch.setattr(icons, "load_map", lambda: {2453: 134181})
+    got = Bridge(archive, now=NOW).icons()
+    assert got["ids"] == {"2453": 134181}
+    assert got["url"].format(134181) == "https://render.worldofwarcraft.com/eu/icons/56/134181.jpg"

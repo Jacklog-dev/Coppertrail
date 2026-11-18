@@ -5,6 +5,7 @@ import { call } from "./api.js";
 import { axisCoins, axisCount, change, coin } from "./coins.js";
 import { chart, chartCard, MARKERS } from "./charts.js";
 import { el, replace } from "./dom.js";
+import { itemIcon } from "./itemicon.js";
 import * as states from "./states.js";
 import { noteCard, staleTail, tile, viewHead, viewHost } from "./viewkit.js";
 
@@ -186,9 +187,14 @@ function fillChanged(card, data, nav) {
         el("span", { class: "changed-type" }, mark, r.type),
         el(
           "div",
-          { class: "changed-item" },
-          el("button", { class: "item-link", text: r.name, attrs: { title: `Show ${r.name} in Item detail` }, on: { click: () => nav.go("item", { item: r.id }) } }),
-          el("div", { class: "sub", text: `${r.detail} · ${r.when}` }),
+          { class: "changed-item icon-row" },
+          itemIcon(r.id),
+          el(
+            "div",
+            { class: "icon-text" },
+            el("button", { class: "item-link", text: r.name, attrs: { title: `Show ${r.name} in Item detail` }, on: { click: () => nav.go("item", { item: r.id }) } }),
+            el("div", { class: "sub", text: `${r.detail} · ${r.when}` }),
+          ),
         ),
       );
     }),
