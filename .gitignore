@@ -1,5 +1,5 @@
-# Collected market data must never be committed to this public repo
-# (AHledger terms). It lives in the private Coppertrail_Data repo.
+# Collected market data must never be committed to this public repo.
+# It lives in the private Coppertrail_Database repo.
 data/
 *.parquet
 *.duckdb

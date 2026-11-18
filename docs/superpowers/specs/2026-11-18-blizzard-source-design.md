@@ -130,15 +130,17 @@ summary_retention_days = 0       # 0 = keep hourly summaries and house rows for 
 Main branch (concluded data, kept, ordinary git history):
 
 - `hourly/<UTC day>/<HH>.parquet`, one file per snapshot, written once and never rewritten, so git grows only by new data (about 34 KB per hour, 0.8 MB a day, roughly 290 MB a year): `item_id, hour (UTC, the snapshot's Last-Modified floored to the hour), observed_at (Last-Modified), min, p25, median, p75` (copper per unit, quantity-weighted; bid-only listings excluded from prices), `quantity, auctions, gone_units, partial_units, short_gone_units, new_units, span_hours, source='blizzard'`. Key `(item_id, hour)`.
-- `house/<UTC day>/<HH>.parquet`: one row per snapshot for the whole house, unfiltered: `hour, observed_at, auctions, units, gold_listed` (sum of unit price × quantity), `gone_auctions, new_auctions, sold_value_est`.
+- `house/<UTC day>/<HH>.parquet`: one row per snapshot for the whole house, unfiltered: `hour, observed_at, auctions, units, gold_listed` (sum of unit price × quantity), `gone_auctions, new_auctions, sold_value_est, source`.
 - `selection/<day>.parquet` (above), `builds/<day>.parquet` (below), `collector.toml`, the workflows, and the scrubbed handover (`handover/`).
 - Many small hour files are fine for DuckDB, because the query layer only reads the days in range. If the repo gets near 1 GB, a later change can merge old months into month files and squash main's history. Not part of this work.
 
-Window branch (copied from Blizzard, at most `copied_days`):
+Window branch (copied unchanged from a source, at most `copied_days`, one folder per source):
 
-- `items/<day>.parquet`: item details (`item_id, name, quality, class_id, class, subclass_id, subclass, required_level, sell_price, purchase_price, item_level, namespace, fetched_at`), the newest row per item wins.
-- `recipes/<day>.parquet`: `recipe_id, name, profession, crafted_item_id, crafted_qty, reagent_id, reagent_qty` (one row per reagent).
-Builds are our own observation (when a namespace was first seen), so `builds/<day>.parquet` (`version, build, namespace, first_seen`) lives on main and survives patch cycles.
+- `blizzard/items/<day>.parquet`: item details (`item_id, name, quality, class_id, class, subclass_id, subclass, required_level, sell_price, purchase_price, item_level, namespace, fetched_at`), the newest row per item wins.
+- `blizzard/recipes/<day>.parquet`: `recipe_id, name, profession, crafted_item_id, crafted_qty, reagent_id, reagent_qty` (one row per reagent).
+Builds are our own observation (when a namespace was first seen), so `builds/<day>.parquet` (`version, build, namespace, first_seen, source`) lives on main and survives patch cycles.
+
+Source separation (Jack, 2026-11-18): data copied from a source sits only on the window branch, under that source's folder (`blizzard/`); a new source gets its own folder next to it. Our own tables on main are source-neutral and every row a source fed records it in `source` (`hourly`, `house`, `builds`). Source-specific code stays in the client and mapping layer (`collector/blizzard.py`, `listings.to_frame`, `master.py`); summaries, sales, selection, query and patterns work on the neutral frames.
 
 The hourly rows store item ids only. Names and classes come from the window branch, so the concluded data holds no copied text.
 
@@ -209,7 +211,7 @@ P is the previous run's listings: a compact Parquet file (`auction_id, item_id, 
 2. Build the new collector, query, patterns and GUI on `dev`, removing the old code as each part is replaced. Delete the 3-row price-table fixture with the old parser.
 3. Data repo (each step confirmed by Jack, irreversible):
    1. Copy `handover/` out of the old clone and scrub it: remove all mentions of the old source, and delete `baseline-2026-11-17.md` and the section 5 numbers.
-   2. Delete `Jacklog-dev/Coppertrail_Data` on GitHub.
+   2. Delete `Jacklog-dev/Coppertrail_Database` on GitHub.
    3. Create it again (private, same name), push main (scrubbed handover, `collector.toml`, workflows) and create the window branch.
    4. Jack adds the `BLIZZARD_CLIENT_ID` / `BLIZZARD_CLIENT_SECRET` secrets.
    5. Start the first run by hand.

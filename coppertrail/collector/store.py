@@ -4,8 +4,11 @@ Two checkouts of the data repo:
 - `data_dir` (branch `main`): Coppertrail's own conclusions, kept for good.
   `hourly/` and `house/` are one write-once file per snapshot
   (`<name>/<YYYY-MM-DD>/<HH>.parquet`); `selection/` and `builds/` are day files.
-- `window_dir` (branch `window`): data copied from Blizzard (item details, recipes),
-  at most `copied_days` old, as day files (`<name>/<YYYY-MM-DD>.parquet`).
+  Rows a source fed carry a `source` column (`blizzard`), the tables themselves are
+  source-neutral, so another source can feed them later.
+- `window_dir` (branch `window`): data copied unchanged from a source, at most
+  `copied_days` old, as day files under the source's own folder
+  (`<source>/<name>/<YYYY-MM-DD>.parquet`, today `blizzard/items/`, `blizzard/recipes/`).
 """
 
 from __future__ import annotations
@@ -34,11 +37,12 @@ class Table:
     required: frozenset[str]
     partition: str  # column whose UTC time picks the file
     sort: tuple[str, ...] = ()
+    source: str | None = None  # set for data copied from a source; None for our own
 
 
-def _table(name, branch, layout, partition, cols, required=(), sort=()):
+def _table(name, branch, layout, partition, cols, required=(), sort=(), source=None):
     schema = pa.schema([pa.field(n, t, nullable=n not in required) for n, t in cols])
-    return Table(name, branch, layout, schema, frozenset(required), partition, tuple(sort))
+    return Table(name, branch, layout, schema, frozenset(required), partition, tuple(sort), source)
 
 
 HOURLY = _table(
@@ -80,8 +84,9 @@ HOUSE = _table(
         ("gone_auctions", pa.int32()),
         ("new_auctions", pa.int32()),
         ("sold_value_est", pa.int64()),
+        ("source", pa.string()),
     ],
-    required=("hour", "observed_at"),
+    required=("hour", "observed_at", "source"),
 )
 SELECTION = _table(
     "selection",
@@ -102,8 +107,9 @@ BUILDS = _table(
         ("build", pa.int32()),
         ("namespace", pa.string()),
         ("first_seen", TS),
+        ("source", pa.string()),
     ],
-    required=("namespace", "first_seen"),
+    required=("namespace", "first_seen", "source"),
 )
 ITEMS = _table(
     "items",
@@ -128,6 +134,7 @@ ITEMS = _table(
     ],
     required=("item_id", "found", "fetched_at"),
     sort=("item_id",),
+    source="blizzard",
 )
 RECIPES = _table(
     "recipes",
@@ -146,6 +153,7 @@ RECIPES = _table(
     ],
     required=("recipe_id", "fetched_at"),
     sort=("recipe_id",),
+    source="blizzard",
 )
 
 TABLES: dict[str, Table] = {t.name: t for t in (HOURLY, HOUSE, SELECTION, BUILDS, ITEMS, RECIPES)}
@@ -187,7 +195,9 @@ class Store:
         self.window_dir = Path(window_dir)
 
     def root(self, table: Table) -> Path:
-        return (self.data_dir if table.branch == "main" else self.window_dir) / table.name
+        if table.branch == "main":
+            return self.data_dir / table.name
+        return self.window_dir / table.source / table.name
 
     def path(self, table: Table, when: datetime | date) -> Path:
         day = _day(when).isoformat()

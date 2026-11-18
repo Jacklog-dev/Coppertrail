@@ -138,6 +138,7 @@ def test_second_run_writes_sales(tmp_path, lookups):
         1.0,
     )
     h = pd.read_parquet(store_of(tmp_path).path(HOUSE, house.at)).iloc[0]
+    assert h["source"] == "blizzard"
     assert (h["gone_auctions"], h["new_auctions"], h["sold_value_est"]) == (2, 1, 500)
     assert lookups == [[10, 20, 30]]  # nothing new to look up the second time
 
@@ -220,5 +221,6 @@ def test_build_row_written_once_per_namespace(tmp_path, lookups):
     house.namespace = "static-1.60.2_70500-forever-eu"
     run(tmp_path, house)
     rows = pq.read_table(store_of(tmp_path).path(BUILDS, T0.date())).to_pandas()
+    assert set(rows["source"]) == {"blizzard"}
     assert rows[["version", "build"]].values.tolist() == [["1.60.1", 70399], ["1.60.2", 70500]]
     assert rows["first_seen"].tolist() == [pd.Timestamp(T0), pd.Timestamp(house.at)]

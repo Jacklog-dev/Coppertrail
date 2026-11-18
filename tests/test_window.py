@@ -111,7 +111,7 @@ def _hour_files(s, table, day):
             ]
         )
     else:
-        df = pd.DataFrame([{"hour": at.replace(minute=0), "observed_at": at}])
+        df = pd.DataFrame([{"hour": at.replace(minute=0), "observed_at": at, "source": "blizzard"}])
     return s.write_hour(table, at, df)
 
 

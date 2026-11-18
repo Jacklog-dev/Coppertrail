@@ -1,7 +1,7 @@
 """Master data copied from Blizzard: item details and recipes, kept on the window branch.
 
-Item details go to `items/<day>.parquet` (the newest row per item wins across files);
-recipes to one `recipes/<day>.parquet` per refresh, one row per reagent.
+Item details go to `blizzard/items/<day>.parquet` (the newest row per item wins across files);
+recipes to one `blizzard/recipes/<day>.parquet` per refresh, one row per reagent.
 """
 
 from __future__ import annotations

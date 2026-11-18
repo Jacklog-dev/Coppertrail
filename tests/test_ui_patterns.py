@@ -289,7 +289,7 @@ def _add_build(archive, day):
 
     at = datetime(day.year, day.month, day.day, 15, tzinfo=UTC)
     row = {"version": "1.60.1", "build": 1, "namespace": "static-1.60.1_1-forever-eu",
-           "first_seen": at}  # fmt: skip
+           "first_seen": at, "source": "blizzard"}  # fmt: skip
     store_of(archive).write_day(BUILDS, day, pd.DataFrame([row]))
 
 

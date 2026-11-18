@@ -170,8 +170,9 @@ def test_exposed_methods_exist():
 
 def _corrupt_folder(tmp_path):
     bad = tmp_path / "bad"
-    (bad / "window" / "items").mkdir(parents=True)
-    (bad / "window" / "items" / "2026-11-16.parquet").write_bytes(b"not a parquet file")
+    items = bad / "window" / "blizzard" / "items"
+    items.mkdir(parents=True)
+    (items / "2026-11-16.parquet").write_bytes(b"not a parquet file")
     return bad
 
 

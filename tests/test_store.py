@@ -28,7 +28,8 @@ def test_hour_path_layout(tmp_path):
     s = Store(tmp_path, tmp_path / "window")
     assert s.path(HOURLY, T) == tmp_path / "hourly" / "2026-11-18" / "12.parquet"
     assert s.path(HOUSE, T) == tmp_path / "house" / "2026-11-18" / "12.parquet"
-    assert s.path(ITEMS, T.date()) == tmp_path / "window" / "items" / "2026-11-18.parquet"
+    want = tmp_path / "window" / "blizzard" / "items" / "2026-11-18.parquet"
+    assert s.path(ITEMS, T.date()) == want
     assert s.path(SELECTION, T.date()) == tmp_path / "selection" / "2026-11-18.parquet"
 
 
@@ -89,3 +90,18 @@ def test_read_missing_table_is_none(tmp_path):
 def test_all_tables_have_a_branch():
     assert {t.branch for t in TABLES.values()} == {"main", "window"}
     assert {"hourly", "house", "selection", "builds", "items", "recipes"} == set(TABLES)
+
+
+def test_copied_tables_sit_under_their_source():
+    # Data copied unchanged from a source lives in window/<source>/, so a second
+    # source can sit next to it; Coppertrail's own tables name no source folder.
+    copied = {n for n, t in TABLES.items() if t.source is not None}
+    assert copied == {"items", "recipes"}
+    assert all(t.branch == "window" for t in TABLES.values() if t.source is not None)
+    assert all(t.branch == "main" for t in TABLES.values() if t.source is None)
+    assert {TABLES[n].source for n in copied} == {"blizzard"}
+
+
+def test_own_tables_fed_by_a_source_record_it():
+    for name in ("hourly", "house", "builds"):
+        assert "source" in TABLES[name].required, name

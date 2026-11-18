@@ -1,8 +1,8 @@
 """Time series from the data folder, as pandas frames for pattern jobs and charts.
 
 The data folder is the data repo's `main` checkout (`hourly/`, `house/`, `selection/`,
-`builds/`, kept for good) with the `window` checkout in `<data>/window/` (`items/`,
-`recipes/`, copied from Blizzard, at most 30 days old).
+`builds/`, kept for good) with the `window` checkout in `<data>/window/` (`blizzard/items/`,
+`blizzard/recipes/`, copied from Blizzard, at most 30 days old).
 
 Every reader takes an optional item id list and an inclusive (start, end) day range
 in UTC, the same days `filtering.date_window` resolves. Only the files of days inside

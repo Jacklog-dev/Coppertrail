@@ -81,17 +81,18 @@ def make_archive(
             "auctions": int(df["auctions"].sum()),
             "units": int(df["quantity"].sum()),
             "gold_listed": int((price.fillna(0) * df["quantity"]).sum()),
+            "source": "blizzard",
         }
         if house is None:
             store.write_hour(HOUSE, observed, pd.DataFrame([summed]))
     for r in house or []:
-        row = {"observed_at": r["hour"] + timedelta(minutes=22), **r}
+        row = {"observed_at": r["hour"] + timedelta(minutes=22), "source": "blizzard", **r}
         store.write_hour(HOUSE, row["observed_at"], pd.DataFrame([row]))
     if recipes:
         rec = pd.DataFrame([{"fetched_at": FETCHED, **r} for r in recipes])
         store.write_day(RECIPES, FETCHED.date(), rec)
     if builds:
-        b = pd.DataFrame(builds)
+        b = pd.DataFrame([{"source": "blizzard", **r} for r in builds])
         for day, g in b.groupby(b["first_seen"].map(lambda t: t.date())):
             store.write_day(BUILDS, day, g)
     return data

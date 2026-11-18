@@ -691,10 +691,10 @@ def test_main_not_fast_forward_reports_failure(tmp_path): ...
 
 ### Task 5.2: Replace the data repo (Jack confirms each step in chat)
 
-- [ ] **Step 1:** Ask: "Delete `Jacklog-dev/Coppertrail_Data` on GitHub now? This cannot be undone by us; GitHub keeps a 90-day owner restore." Only on yes: `gh repo delete Jacklog-dev/Coppertrail_Data --yes`.
-- [ ] **Step 2:** Ask: "Create the new private `Jacklog-dev/Coppertrail_Data` and push main?" On yes: `gh repo create Jacklog-dev/Coppertrail_Data --private`, then commit in `private-next/` and push main.
-- [ ] **Step 3:** Jack sets the secrets himself: `gh secret set BLIZZARD_CLIENT_ID --repo Jacklog-dev/Coppertrail_Data` and the same for the secret.
-- [ ] **Step 4:** Start the first run: `gh workflow run hourly.yml --repo Jacklog-dev/Coppertrail_Data`. Watch it with `gh run watch` (in the background). Expected: success, one commit on main and a `window` branch.
+- [ ] **Step 1:** Ask: "Delete `Jacklog-dev/Coppertrail_Database` on GitHub now? This cannot be undone by us; GitHub keeps a 90-day owner restore." Only on yes: `gh repo delete Jacklog-dev/Coppertrail_Database --yes`.
+- [ ] **Step 2:** Ask: "Create the new private `Jacklog-dev/Coppertrail_Database` and push main?" On yes: `gh repo create Jacklog-dev/Coppertrail_Database --private`, then commit in `private-next/` and push main.
+- [ ] **Step 3:** Jack sets the secrets himself: `gh secret set BLIZZARD_CLIENT_ID --repo Jacklog-dev/Coppertrail_Database` and the same for the secret.
+- [ ] **Step 4:** Start the first run: `gh workflow run hourly.yml --repo Jacklog-dev/Coppertrail_Database`. Watch it with `gh run watch` (in the background). Expected: success, one commit on main and a `window` branch.
 - [ ] **Step 5:** Check that `gh run view --log` holds no price values or secrets: `gh run view <id> --log | grep -E "unit_price|buyout|client_secret"` prints nothing.
 
 ---

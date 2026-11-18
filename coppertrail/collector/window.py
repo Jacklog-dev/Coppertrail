@@ -26,7 +26,7 @@ def _young(day: date, today: date, days: int) -> bool:
 
 
 def prune_window(store: Store, today: date, copied_days: int) -> list[Path]:
-    """Collapse ITEMS into `items/<today>.parquet` (newest row per item, rows fetched
+    """Collapse ITEMS into `blizzard/items/<today>.parquet` (newest row per item, rows fetched
     `copied_days` or more days ago dropped) and keep only the newest RECIPES file while
     it is younger than `copied_days`. Returns the deleted files."""
     deleted: list[Path] = []

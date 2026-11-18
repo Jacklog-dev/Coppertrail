@@ -122,7 +122,11 @@ def _hourly_rows(summary: pd.DataFrame, sales: pd.DataFrame, fetched: Fetched) -
 
 
 def _house_row(frame, prev, span_ok: bool, at: datetime) -> pd.DataFrame:
-    row = {"hour": at.replace(minute=0, second=0, microsecond=0), "observed_at": at}
+    row = {
+        "hour": at.replace(minute=0, second=0, microsecond=0),
+        "observed_at": at,
+        "source": SOURCE,
+    }
     row.update(house_totals(frame))
     if prev is not None and span_ok:
         row["gone_auctions"], row["new_auctions"] = auction_changes(prev, frame)
@@ -145,7 +149,15 @@ def _record_build(client: BlizzardClient, store: Store, at: datetime) -> None:
             return
     version, build = parse_namespace(namespace)
     row = pd.DataFrame(
-        [{"version": version, "build": build, "namespace": namespace, "first_seen": at}]
+        [
+            {
+                "version": version,
+                "build": build,
+                "namespace": namespace,
+                "first_seen": at,
+                "source": SOURCE,
+            }
+        ]
     )
     path = store.path(BUILDS, at)
     if path.exists():
