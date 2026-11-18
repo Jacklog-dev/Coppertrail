@@ -4,6 +4,8 @@ from pathlib import Path
 
 from coppertrail.ui.app import AppApi, gui_backend, js_facade, parse_size
 from coppertrail.ui.bridge import Bridge
+from coppertrail.ui.devserver import WEB_DIR
+from coppertrail.ui.format import CREDIT_TEXT, CREDIT_URL
 from coppertrail.ui.screenshot import edge_command
 
 
@@ -39,11 +41,28 @@ def test_js_facade_has_only_exposed_methods(archive, config_dir):
     assert facade.state()["items"]["total"] == 9
 
 
-def test_open_credit_only_opens_ahledger(monkeypatch, archive, config_dir):
+def test_open_credit_opens_credit_url(monkeypatch, archive, config_dir):
     opened = []
     monkeypatch.setattr("webbrowser.open", opened.append)
     AppApi(archive).open_credit()
-    assert opened == ["https://ahledger.com"]
+    assert opened == [CREDIT_URL]
+
+
+def test_web_credit_and_first_pull_text():
+    """The strip's fallback before the first state is the bridge's credit; no old source left."""
+    js = WEB_DIR / "js"
+    strip = (js / "statusstrip.js").read_text(encoding="utf-8")
+    assert (
+        f'"{CREDIT_TEXT}"' in strip and "state.creditText" in strip and "state.creditUrl" in strip
+    )
+    states = (js / "states.js").read_text(encoding="utf-8")
+    assert (
+        "Coppertrail keeps a local copy of your Blizzard auction archive. Pull once to start."
+        in states
+    )
+    for f in WEB_DIR.rglob("*"):
+        if f.suffix in {".html", ".css", ".js"} and "vendor" not in f.parts:
+            assert "ahledger" not in f.read_text(encoding="utf-8").lower(), f
 
 
 def test_pull_runs_in_background_and_emits(archive, config_dir):

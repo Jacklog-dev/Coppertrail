@@ -19,8 +19,9 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from coppertrail.ui import tokens
-from coppertrail.ui.bridge import AHLEDGER_URL, Bridge
+from coppertrail.ui.bridge import Bridge
 from coppertrail.ui.devserver import WEB_DIR, serve
+from coppertrail.ui.format import CREDIT_URL
 from coppertrail.ui.pull import PullResult, run_pull
 
 Emit = Callable[[str, dict], None]
@@ -68,7 +69,7 @@ class AppApi(Bridge):
         return self.set_data_dir(str(chosen[0] if isinstance(chosen, list | tuple) else chosen))
 
     def open_credit(self) -> None:
-        webbrowser.open(AHLEDGER_URL)
+        webbrowser.open(CREDIT_URL)
 
     def pull_latest(self) -> dict:
         """Runs git in a worker thread and reports with a `pull` event when done."""

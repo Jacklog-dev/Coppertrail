@@ -28,8 +28,9 @@ uv run python -m coppertrail.ui --data-dir path/to/your/private/data
 - Filters for item groups (editable), class, name, date range and minimum sales
   per day apply to every view and are remembered.
 
-The only network action in the app is "Pull latest data", which runs `git pull`
-on your data folder.
+The only network action in the app is "Pull latest data". It fast-forwards your
+data folder (`git pull --ff-only`) and resets the `window/` checkout inside it to
+the latest copied data, which is rewritten daily.
 
 ### Pattern jobs from the command line
 
@@ -56,29 +57,37 @@ Needs [uv](https://docs.astral.sh/uv/) (Python 3.12).
 
 ```bash
 uv sync
-uv run python -m coppertrail.collector --data-dir path/to/your/private/data run
+uv run python -m coppertrail.collector --data-dir path/to/your/private/data hourly
+uv run python -m coppertrail.collector --data-dir path/to/your/private/data nightly
 ```
 
-One run fetches the AHledger price table, builds a watchlist of bulk and
-high-value goods, and stores 7 days of hourly prices per item, per-scan data
-for the top 200 items, market totals, recipes, game builds and item details
-(subclass, vendor price). It writes them as Parquet day files.
-The collector uses the keyless rate (30 requests per minute), so a run takes
-about 40 minutes. It is safe to rerun, and an interrupted run resumes where it
-stopped. Archiving from the API stops at a configurable cutoff
-(`api_archive_until`), because AHledger's terms change on 10 December 2026.
+The collector reads the auction house from the Blizzard Game Data API. It needs
+your own API client: set `BLIZZARD_CLIENT_ID` and `BLIZZARD_CLIENT_SECRET`, or put
+`client_id` and `client_secret` in a `[blizzard]` table in `blizzard.toml` in the
+Coppertrail settings folder (`%APPDATA%\Coppertrail`, or `~/.config/coppertrail`).
 
-## Data
+- `hourly` fetches the latest snapshot and writes one file of hourly conclusions
+  per snapshot (prices per item, listed quantity, estimated sales). It is safe to
+  rerun: an hour that is already stored is never written twice.
+- `nightly` rebuilds the item selection, refreshes item details and recipes, and
+  keeps the copied data to the last 30 days.
 
-Prices from [AHledger](https://ahledger.com).
+## Data and privacy
 
-This repository ships **no market data**. The collector builds the archive
-locally (or in your own private repository), and it is never published here.
-
-## Not affiliated
-
-Coppertrail is a fan-made tool. It is not affiliated with or endorsed by
-Blizzard Entertainment and contains no game assets.
+- Market data comes from the Blizzard Entertainment Game Data API and is
+  provided "as is", without any warranty of accuracy or completeness.
+- Coppertrail is a fan-made tool. It is not affiliated with or endorsed by
+  Blizzard Entertainment and contains no game assets.
+- This repository ships **no data**. The collector builds the archive in your own
+  data folder (or your own private repository), and it is never published here.
+- Data copied unchanged from Blizzard (current listings, item details, recipes) is
+  kept for at most 30 days. Coppertrail's own hourly conclusions drawn from it
+  (prices, quantities, sales estimates per item and hour) are kept longer.
+- Nothing is collected about users: no accounts, no telemetry, no tracking. The app
+  makes no network request except "Pull latest data", and only when you click it.
+- The copied data lives on a git branch that is rewritten every day. GitHub may
+  keep unreachable git objects for a while after such a rewrite; that is outside
+  Coppertrail's control.
 
 ## License
 
