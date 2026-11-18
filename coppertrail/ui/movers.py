@@ -1,6 +1,6 @@
 """Payloads for Movers & outliers (HANDOVER 8b "Views", mock-up Movers).
 
-Pure functions from hourly rows, scans and the `mispricings` job to JSON-able dicts; the
+Pure functions from hourly rows (one per snapshot) and the `mispricings` job to JSON-able dicts; the
 bridge reads and caches. Spec: `docs/superpowers/specs/2026-11-17-patterns-movers-views.md`.
 """
 
@@ -135,15 +135,15 @@ def threshold_of(value) -> float:
 
 def mispricings_now(
     result: PatternResult | None,
-    scans: pd.DataFrame,
+    hourly: pd.DataFrame,
     items: Sequence[Item],
     group_of: dict[int, str],
     threshold: float,
 ) -> dict:
-    """Mispricings found in the last 24 h of scans, below `threshold` x the usual price.
+    """Mispricings found in the last 24 h of snapshots, below `threshold` x the usual price.
 
     Usual = the job's reference (median p25 of the prior 6 h): in a falling market the
-    snapshot's 30-day median lags far above every recent listing.
+    30-day median lags far above every recent listing.
     """
     out: dict = {
         "threshold": threshold,
@@ -151,17 +151,17 @@ def mispricings_now(
         "usualLabel": "Usual (6 h median)",
         "rows": [],
     }
-    if scans.empty:
-        return {**out, "sub": "No scans yet", "note": "The archive has no scans yet."}
-    t = scans["observed_at"].max()
+    if hourly.empty:
+        return {**out, "sub": "No data yet", "note": "The archive has no hourly data yet."}
+    t = hourly["observed_at"].max()
     ev = None if result is None or not result.ready else result.charts.get("events")
     header = f"{fmt.local_datetime(t.to_pydatetime())} · last 24 h"
     if ev is None or ev.empty:
         return {**out, "sub": f"{header} · 0 items", "note": "No mispricings in the last 24 hours."}
     recent = ev[ev["at"] >= t - WINDOW].sort_values("at").groupby("item_id").tail(1)
-    window = scans[scans["observed_at"] >= t - WINDOW]
+    window = hourly[hourly["observed_at"] >= t - WINDOW]
     typical = window.groupby("item_id").agg(low=("p25", "median"), high=("p75", "median"))
-    qty = scans.set_index(["item_id", "observed_at"])["quantity"]
+    qty = hourly.set_index(["item_id", "observed_at"])["quantity"]
     by_id = {i.item_id: i for i in items}
     last_day = t.tz_convert(TZ).date()
     rows = []

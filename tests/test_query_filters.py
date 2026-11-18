@@ -1,24 +1,41 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from coppertrail.query.catalog import ArchiveStatus, archive_status, load_items
 from coppertrail.query.filtering import apply_filters, date_window, item_classes
 from coppertrail.query.groups import ItemGroup, load_groups, save_groups, starter_groups
 from coppertrail.query.settings import Filters, Settings, load_settings, save_settings
+from tests.new_archive import make_archive
 
 
-def test_catalog_uses_latest_snapshot(archive):
+def test_catalog_uses_latest_hour(archive):
     items = {i.name: i for i in load_items(archive)}
     assert len(items) == 9
-    assert items["Rugged Leather"].min_buyout == 1_495  # not the older 2x price
+    assert items["Rugged Leather"].min_buyout == 1_495
+    assert items["Light Leather"].min_buyout == 35  # the newest hour, not the older 30
     assert items["Rugged Leather"].sales_per_day == 9_221.0
     assert items["Accurate Scope"].item_class == "Consumable"
 
 
 def test_archive_status(archive):
-    st = archive_status(archive)
+    st = archive_status(archive, now=datetime(2026, 11, 16, 9, 0, tzinfo=UTC))
     assert st.as_of == datetime(2026, 11, 16, 7, 0, tzinfo=UTC)
+    assert st.first_hour == datetime(2026, 11, 9, tzinfo=UTC)
+    assert st.last_hour == datetime(2026, 11, 16, 7, 0, tzinfo=UTC)
+    assert st.hours == 176 and st.missing_hours_7d == 0 and not st.stale
     assert (st.first_day, st.last_day, st.days) == (date(2026, 11, 9), date(2026, 11, 16), 8)
     assert st.age_days(datetime(2026, 11, 19, 7, 0, tzinfo=UTC)) == 3.0
+    assert archive_status(archive, now=datetime(2026, 11, 16, 10, 1, tzinfo=UTC)).stale
+
+
+def test_archive_status_counts_missing_hours(tmp_path):
+    t0 = datetime(2026, 11, 10, tzinfo=UTC)
+    rows = [{"hour": t0 + timedelta(hours=h), "min": 5} for h in range(10 * 24) if h % 50]
+    later = datetime(2026, 11, 25, tzinfo=UTC)
+    st = archive_status(make_archive(tmp_path, [(1, "X", "Y")], {1: rows}), now=later)
+    assert st.hours == 10 * 24 - 5 and st.first_hour == t0 + timedelta(hours=1)
+    assert st.missing_hours_7d == 3  # hours 100, 150 and 200; 0 and 50 are outside 7 d
+    assert st.as_of == t0 + timedelta(hours=239, minutes=22)
+    assert st.stale
 
 
 def test_empty_data_folder(tmp_path):
@@ -95,13 +112,13 @@ def test_active_filters():
 
 
 def test_date_window_clamps_to_archive():
-    st = ArchiveStatus(datetime(2026, 11, 16, tzinfo=UTC), date(2026, 11, 9), date(2026, 11, 16))
+    st = ArchiveStatus(datetime(2026, 11, 9, tzinfo=UTC), datetime(2026, 11, 16, tzinfo=UTC))
     assert date_window(Filters(), st) == (date(2026, 11, 9), date(2026, 11, 16))  # 30 d
     assert date_window(Filters(range="7d"), st) == (date(2026, 11, 10), date(2026, 11, 16))
     assert date_window(Filters(range="24h"), st) == (date(2026, 11, 16), date(2026, 11, 16))
     custom = Filters(range="custom", date_from=date(2026, 11, 20), date_to=date(2026, 10, 1))
     assert date_window(custom, st) == (date(2026, 11, 9), date(2026, 11, 16))
-    empty = ArchiveStatus(None, None, None)
+    empty = ArchiveStatus(None, None)
     assert date_window(Filters(range="7d"), empty, today=date(2026, 11, 17)) == (
         date(2026, 11, 11),
         date(2026, 11, 17),

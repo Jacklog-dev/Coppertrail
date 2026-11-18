@@ -12,12 +12,11 @@ from coppertrail.patterns.base import Context
 from coppertrail.query.series import (
     BUILD_COLS,
     DETAIL_COLS,
-    ECONOMY_COLS,
     HOURLY_COLS,
+    HOUSE_COLS,
     ITEM_COLS,
+    LATEST_COLS,
     RECIPE_COLS,
-    SCAN_COLS,
-    SNAPSHOT_COLS,
 )
 
 TZ = "Europe/Berlin"
@@ -26,10 +25,9 @@ TZ = "Europe/Berlin"
 def make_ctx(
     *,
     hourly: pd.DataFrame | None = None,
-    scans: pd.DataFrame | None = None,
     items: pd.DataFrame | None = None,
-    snapshot: pd.DataFrame | None = None,
-    economy: pd.DataFrame | None = None,
+    latest: pd.DataFrame | None = None,
+    house: pd.DataFrame | None = None,
     details: pd.DataFrame | None = None,
     recipes: pd.DataFrame | None = None,
     builds: pd.DataFrame | None = None,
@@ -39,10 +37,9 @@ def make_ctx(
     ctx = Context(Path("unused"), None, start, end)
     frames = {
         "hourly": (hourly, HOURLY_COLS),
-        "scans": (scans, SCAN_COLS),
         "items": (items, ITEM_COLS),
-        "snapshot": (snapshot, SNAPSHOT_COLS),
-        "economy": (economy, ECONOMY_COLS),
+        "latest": (latest, LATEST_COLS),
+        "house": (house, HOUSE_COLS),
         "details": (details, DETAIL_COLS),
         "recipes": (recipes, RECIPE_COLS),
         "builds": (builds, BUILD_COLS),
@@ -63,45 +60,32 @@ def items_frame(rows: list[tuple[int, str, int]], item_class: str = "Trade Goods
     )
 
 
-def snapshot_frame(sales: dict[int, float]) -> pd.DataFrame:
+def latest_frame(sales: dict[int, float], min_buyout: float = 100) -> pd.DataFrame:
+    """`latest_per_item` rows: sales/day per item, every lowest buyout `min_buyout`."""
     return pd.DataFrame(
         [
             {
-                "scanned_at": pd.Timestamp("2026-11-16", tz="UTC"),
                 "item_id": i,
+                "observed_at": pd.Timestamp("2026-11-16", tz="UTC"),
                 "sales_per_day": s,
-                "min_buyout": 100,
+                "min_buyout": min_buyout,
             }
             for i, s in sales.items()
         ],
-        columns=SNAPSHOT_COLS,
+        columns=LATEST_COLS,
     )
 
 
-def hourly_frame(item_id: int, start: str, values: dict[str, np.ndarray]) -> pd.DataFrame:
-    """One row per hour from `start` (UTC); `values` gives min/p25/quantity arrays."""
+def hourly_frame(
+    item_id: int, start: str, values: dict[str, np.ndarray], jitter_s: np.ndarray | None = None
+) -> pd.DataFrame:
+    """One row per hour (snapshot) from `start` (UTC); `values` gives min/p25/quantity/...
+    arrays. `observed_at` is 22 minutes past the hour, plus `jitter_s` seconds."""
     n = len(next(iter(values.values())))
     df = pd.DataFrame({"hour": pd.date_range(start, periods=n, freq="h", tz="UTC")})
-    df["item_id"] = item_id
-    for col in ("min", "p25", "median", "p75", "quantity", "auctions"):
-        if col in values:
-            df[col] = values[col]
-    df["p25"] = df.get("p25", df["min"] * 1.1)
-    df["median"] = df.get("median", df["min"] * 1.3)
-    df["p75"] = df.get("p75", df["min"] * 1.5)
-    df["quantity"] = df.get("quantity", 100)
-    df["auctions"] = df.get("auctions", 10)
-    df["source"] = "api"
-    return df[HOURLY_COLS]
-
-
-def scans_frame(
-    item_id: int, start: str, minutes: int, values: dict[str, np.ndarray]
-) -> pd.DataFrame:
-    n = len(next(iter(values.values())))
-    df = pd.DataFrame(
-        {"observed_at": pd.date_range(start, periods=n, freq=f"{minutes}min", tz="UTC")}
-    )
+    df["observed_at"] = df["hour"] + pd.Timedelta(minutes=22)
+    if jitter_s is not None:
+        df["observed_at"] += pd.to_timedelta(jitter_s, unit="s")
     df["item_id"] = item_id
     for col, v in values.items():
         df[col] = v
@@ -110,8 +94,8 @@ def scans_frame(
     df["p75"] = df.get("p75", df["min"] * 1.5)
     df["quantity"] = df.get("quantity", 100)
     df["auctions"] = df.get("auctions", 10)
-    df["source"] = "api"
-    return df[SCAN_COLS]
+    df["source"] = "blizzard"
+    return df.reindex(columns=HOURLY_COLS)
 
 
 def local_hours(start: str, n: int) -> np.ndarray:

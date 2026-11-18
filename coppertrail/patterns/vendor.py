@@ -52,7 +52,7 @@ def _empty_result(note: str) -> PatternResult:
     number=10,
     title="Vendor floor",
     min_days=1,
-    data=("hourly", "snapshot", "items"),
+    data=("hourly", "latest", "items"),
     method=(
         "Vendor price = what a vendor pays per unit (vendorSell). Per item and hour the "
         f"hourly min against it: near at or below {1 + NEAR:.0%} of the vendor price, "
@@ -106,7 +106,7 @@ def vendor_floor(ctx: Context) -> PatternResult:
         per["best_hour"] = best.reindex(per.index).astype("float64")
     else:
         per["best_hour"] = np.nan
-    snap = ctx.snapshot
+    snap = ctx.latest
     snap_min = (
         snap.set_index("item_id")["min_buyout"].astype("float64")
         if not snap.empty
@@ -114,8 +114,8 @@ def vendor_floor(ctx: Context) -> PatternResult:
     )
     per["min_now"] = snap_min.reindex(per.index).fillna(per["last_min"])
     per["ratio_now"] = per["min_now"] / per["vendor_price"]
-    # Items outside the watchlist have no hourly rows; the latest snapshot still shows
-    # whether they sit on the floor now.
+    # Items without hourly rows in the range: the latest hour still shows whether they
+    # sit on the floor now.
     only = vendor.index.difference(per.index).intersection(snap_min.dropna().index)
     if len(only):
         so = pd.DataFrame(index=only.rename("item_id"))
@@ -126,7 +126,7 @@ def vendor_floor(ctx: Context) -> PatternResult:
         so[["hours", "hours_near", "hours_below"]] = 0
         so["share_near"] = np.nan
         so["best_hour"] = np.nan
-        at = snap.groupby("item_id")["scanned_at"].max().reindex(only)
+        at = snap.groupby("item_id")["observed_at"].max().reindex(only)
         so["last_near_at"] = at.where(so["ratio_now"] <= 1 + NEAR)
         per = pd.concat([per, so])
         for c in ("hours", "hours_near", "hours_below"):

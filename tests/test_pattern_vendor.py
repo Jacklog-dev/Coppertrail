@@ -6,7 +6,7 @@ from pattern_fixtures import hourly_frame, items_frame, local_hours, make_ctx, n
 
 from coppertrail.patterns.base import run
 from coppertrail.patterns.vendor import vendor_floor
-from coppertrail.query.series import DETAIL_COLS, SNAPSHOT_COLS
+from coppertrail.query.series import DETAIL_COLS, LATEST_COLS
 
 START = "2026-11-08 23:00"  # 00:00 CET on 9 Nov
 N = 3 * 24
@@ -23,18 +23,18 @@ def _details(prices):
     )
 
 
-def _snapshot(mins):
+def _latest(mins):
     return pd.DataFrame(
         [
             {
-                "scanned_at": pd.Timestamp("2026-11-11 22:00", tz="UTC"),
+                "observed_at": pd.Timestamp("2026-11-11 22:00", tz="UTC"),
                 "item_id": i,
                 "sales_per_day": 50.0,
                 "min_buyout": m,
             }
             for i, m in mins.items()
         ],
-        columns=SNAPSHOT_COLS,
+        columns=LATEST_COLS,
     )
 
 
@@ -52,11 +52,11 @@ def _dipping(item_id):
     return df, int(dip.sum()), df["hour"][dip].max()
 
 
-def _ctx(frames, ids, details, snapshot=None, **kw):
+def _ctx(frames, ids, details, latest=None, **kw):
     return make_ctx(
         hourly=pd.concat(frames, ignore_index=True),
         items=items_frame([(i, f"Item {i}", 10) for i in ids]),
-        snapshot=_snapshot({i: 1600.0 for i in ids}) if snapshot is None else snapshot,
+        latest=_latest({i: 1600.0 for i in ids}) if latest is None else latest,
         details=details,
         **kw,
     )
@@ -105,7 +105,7 @@ def test_flat_noise_above_vendor_price_has_no_hits():
 
 def test_min_now_falls_back_to_last_hourly_min():
     df = _flat(1, 2 * VENDOR)
-    res = vendor_floor(_ctx([df], [1], _details({1: VENDOR}), snapshot=_snapshot({})))
+    res = vendor_floor(_ctx([df], [1], _details({1: VENDOR}), latest=_latest({})))
     assert res.ranked.iloc[0]["min_now"] == df["min"].iloc[-1]
 
 
@@ -131,13 +131,13 @@ def test_gate_on_empty_archive():
     assert res.needs_days == 1 and res.ready_on == date(2026, 11, 10)
 
 
-def test_items_without_hourly_data_checked_on_snapshot():
-    # 1 has hourly data far above the floor; 2 and 3 are only in the snapshot.
+def test_items_without_hourly_data_checked_on_latest():
+    # 1 has hourly data far above the floor; 2 and 3 only have a latest row.
     ctx = _ctx(
         [_flat(1, 3 * VENDOR)],
         [1, 2, 3],
         _details({1: VENDOR, 2: VENDOR, 3: VENDOR}),
-        snapshot=_snapshot({1: 3 * VENDOR, 2: 0.95 * VENDOR, 3: 5 * VENDOR}),
+        latest=_latest({1: 3 * VENDOR, 2: 0.95 * VENDOR, 3: 5 * VENDOR}),
     )
     res = vendor_floor(ctx)
     r = res.ranked.set_index("item_id")

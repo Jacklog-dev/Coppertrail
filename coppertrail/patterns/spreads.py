@@ -85,7 +85,7 @@ def _empty_result(note: str, checked: int = 0) -> PatternResult:
     number=7,
     title="Processing spreads",
     min_days=1,
-    data=("recipes", "hourly", "snapshot", "items"),
+    data=("recipes", "hourly", "latest", "items"),
     method=(
         "Recipes whose product or a reagent is in the selection. Value = mean result "
         "quantity x price x 0.95, cost = sum of reagent quantity x price; margin = value "
@@ -116,7 +116,7 @@ def processing_spreads(ctx: Context) -> PatternResult:
         else pd.DataFrame()
     )
     last_day = wide.ffill().iloc[-1] if len(wide) else pd.Series(dtype="float64")
-    snap = ctx.snapshot_of(ids)
+    snap = ctx.latest_of(ids)
     sales = snap.groupby("item_id")["sales_per_day"].last().astype("float64")
     snap = snap[snap["min_buyout"].notna() & (snap["min_buyout"] > 0)]
     now_price = snap.set_index("item_id")["min_buyout"].astype("float64")

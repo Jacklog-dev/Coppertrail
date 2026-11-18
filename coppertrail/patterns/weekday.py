@@ -186,7 +186,7 @@ def _empty(note: str, items_checked: int = 0) -> PatternResult:
     number=2,
     title="Weekday and raid reset",
     min_days=28,
-    data=("hourly", "snapshot", "items"),
+    data=("hourly", "latest", "items"),
     method=(
         "Daily price = CET-day median of hourly min, supply = mean quantity; each divided "
         "by its centred 7-day mean (index 100, each weekday once in the window) and "

@@ -54,8 +54,8 @@ def trim_mean(values: pd.Series, cut: float = 0.1) -> float:
 
 
 def select_items(data_dir: Path, top: int = 300, min_sales: float = 20.0) -> pd.DataFrame:
-    """Highest turnover (sales/day x min buyout, latest snapshot) with min sales/day."""
-    snap = series.latest_snapshot(data_dir)
+    """Highest turnover (sales/day x min buyout, newest hour) with min sales/day."""
+    snap = series.latest_per_item(data_dir)
     snap = snap[(snap["sales_per_day"] >= min_sales) & snap["min_buyout"].notna()].copy()
     snap["turnover"] = snap["sales_per_day"] * snap["min_buyout"]
     snap = snap.sort_values("turnover", ascending=False).head(top)

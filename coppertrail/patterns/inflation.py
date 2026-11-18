@@ -4,7 +4,7 @@ Groups: farmable (the Herbs, Leather chain, Cloth and Ore and bars starter group
 minus scarce goods), scarce (the Scarce goods starter group) and vendor-tied (the
 name list below, a stopgap until vendor prices are collected). The starter
 definitions are used, not the user's edited groups, so the index stays comparable.
-The level-60 population share is not available (the CSV sits behind a bot check).
+Gold listed and auctions come from the house rows (one per snapshot).
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 
 from coppertrail.patterns.base import Context, PatternResult, pattern
-from coppertrail.patterns.common import daily_prices, finish_ranked, sales_per_day
+from coppertrail.patterns.common import daily_prices, finish_ranked, local_day, sales_per_day
 from coppertrail.query.groups import ItemGroup, starter_groups
 
 FARMABLE_GROUPS = ("Herbs", "Leather chain", "Cloth", "Ore and bars")
@@ -124,18 +124,21 @@ def basket(prices: pd.DataFrame, groups: pd.Series, sales: pd.Series) -> tuple:
     return idx, per.rename_axis("item_id").reset_index()
 
 
-def economy_chart(e: pd.DataFrame, base_day=None) -> pd.DataFrame:
-    """Gold listed (in gold), auctions, units; gold_index = 100 on `base_day` (or day one)."""
-    if e.empty:
+def economy_chart(house: pd.DataFrame, base_day=None) -> pd.DataFrame:
+    """Per CET day the median over the house rows (one per snapshot) of gold listed (in
+    gold), auctions and units; gold_index = 100 on `base_day` (or day one)."""
+    if house.empty:
         return pd.DataFrame(columns=["day", "gold_listed", "auctions", "units", "gold_index"])
-    out = pd.DataFrame(
-        {
-            "day": e["day"],
-            "gold_listed": e["value"].astype("float64") / 10_000,
-            "auctions": e["auctions"],
-            "units": e["units"],
-        }
-    ).reset_index(drop=True)
+    h = house.assign(day=local_day(house["hour"]))
+    out = (
+        h.groupby("day")
+        .agg(
+            gold_listed=("gold_listed", lambda v: v.astype("float64").median() / 10_000),
+            auctions=("auctions", "median"),
+            units=("units", "median"),
+        )
+        .reset_index()
+    )
     at_base = out.loc[out["day"] == base_day, "gold_listed"] if base_day is not None else []
     base = at_base.iloc[0] if len(at_base) else out["gold_listed"].iloc[0]
     out["gold_index"] = 100 * out["gold_listed"] / base if base else np.nan
@@ -147,23 +150,23 @@ def economy_chart(e: pd.DataFrame, base_day=None) -> pd.DataFrame:
     number=12,
     title="Inflation",
     min_days=3,
-    data=("hourly", "snapshot", "items", "economy"),
+    data=("hourly", "latest", "items", "house"),
     method=(
         "Daily price = CET-day median of hourly min. Basket per group (farmable, scarce, "
         "vendor-tied) weighted by latest sales/day x base-day price; index 100 = first "
         "day, over the items present. Divergence = scarce - farmable. Gold listed and "
-        "auctions from the daily economy totals."
+        "auctions: CET-day median of the house rows."
     ),
 )
 def inflation(ctx: Context) -> PatternResult:
     h = ctx.hourly
     if h.empty:
-        econ = economy_chart(ctx.economy)
+        econ = economy_chart(ctx.house)
         return PatternResult(charts={"economy": econ}, note="No hourly data in the range.")
     groups = classify(ctx.items)
     idx, per = basket(daily_prices(h), groups, sales_per_day(ctx))
     # Same base day as the price indexes, so the charts can be overlaid.
-    econ = economy_chart(ctx.economy, idx["day"].min() if len(idx) else None)
+    econ = economy_chart(ctx.house, idx["day"].min() if len(idx) else None)
     wide = idx.pivot(index="day", columns="group", values="index") if len(idx) else None
     div = pd.DataFrame(columns=["day", "divergence"])
     if wide is not None and {"scarce", "farmable"} <= set(wide.columns):
@@ -190,7 +193,6 @@ def inflation(ctx: Context) -> PatternResult:
             f"Basket: {counts['farmable']} farmable, {counts['scarce']} scarce, "
             f"{counts['vendor']} vendor-tied items. Hit: scarce up or farmable/vendor-tied "
             f"down by 5 % or more. Latest divergence "
-            f"{'n/a' if not np.isfinite(last) else f'{last:+.1f}'} index points. "
-            "Population share not available (bot check)."
+            f"{'n/a' if not np.isfinite(last) else f'{last:+.1f}'} index points."
         ),
     )

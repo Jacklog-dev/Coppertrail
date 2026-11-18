@@ -6,13 +6,15 @@ from datetime import UTC, date, datetime, timedelta
 import pandas as pd
 import pytest
 
-from coppertrail.collector.legacy.store import TABLES, Store, to_arrow
+from coppertrail.collector.store import ITEMS
 from coppertrail.patterns.base import PatternResult, events_frame
 from coppertrail.query.catalog import Item
 from coppertrail.query.groups import load_groups
+from coppertrail.query.series import store_of
 from coppertrail.ui import viewdata as vd
 from coppertrail.ui.app import js_facade
 from coppertrail.ui.bridge import Bridge, Memo, item_details
+from tests.new_archive import FETCHED, SAMPLE_ITEMS, item_row, make_archive, sample_hours
 
 
 def NOW():  # noqa: N802
@@ -24,70 +26,70 @@ HOURS = [T0 + timedelta(hours=h) for h in range(8 * 24)]  # 9 Nov 00:00 .. 16 No
 JUMP = datetime(2026, 11, 15, 23, tzinfo=UTC)  # 16 Nov 00:00 CET
 
 
-def _hourly(item_id, price, qty=100):
+def _hourly(price, qty=100):
     return [
         {
-            "item_id": item_id,
             "hour": h,
+            "observed_at": h,
             "min": price(h),
             "p25": price(h) + 10,
             "median": price(h) + 20,
             "p75": price(h) + 30,
             "quantity": qty(h) if callable(qty) else qty,
             "auctions": 5,
-            "source": "api",
-            "run_id": "r",
-            "fetched_at": T0,
         }
         for h in HOURS
     ]
 
 
-@pytest.fixture
-def market(archive):
-    """The shared archive plus hourly rows for a few items, economy totals and details."""
-    store = Store(archive)
-    rows = (
+def _merge(base: list[dict], over: list[dict]) -> list[dict]:
+    """`over` rows win; the sales estimate of `base` rows at the same hour is kept."""
+    keep = ("gone_units", "partial_units", "short_gone_units", "new_units", "span_hours")
+    sales = {r["hour"]: {k: r[k] for k in keep if k in r} for r in base}
+    hours = {r["hour"] for r in over}
+    return [r for r in base if r["hour"] not in hours] + [
+        {**r, **sales.get(r["hour"], {})} for r in over
+    ]
+
+
+def build_market(tmp_path, tweak=None):
+    """The sample archive plus hourly rows for a few items to 16 Nov 23:00 UTC, house rows
+    (gold listed 100,000g on CET day 9 Nov, +10,000g a day) and item details.
+    `tweak(hours)` may change the item rows before they are written (files are write-once)."""
+    hours = sample_hours()
+    extra = {
         # Rugged Leather: 1,000c, then 1,500c on the last CET day; quantity up there too.
-        _hourly(8170, lambda h: 1500 if h >= JUMP else 1000, lambda h: 150 if h >= JUMP else 100)
-        + _hourly(2447, lambda h: 50)  # Peacebloom (farmable): flat
-        + _hourly(13468, lambda h: 2_000_000 + 20_000 * ((h - T0).days))  # Black Lotus (scarce)
-    )
-    store.upsert(TABLES["hourly"], to_arrow(TABLES["hourly"], rows))
-    store.upsert(
-        TABLES["economy"],
-        to_arrow(
-            TABLES["economy"],
-            [
-                {
-                    "day": date(2026, 11, 9) + timedelta(days=k),
-                    "kind": "daily",
-                    "value": 1_000_000_000 + 100_000_000 * k,
-                    "auctions": 1000 + 10 * k,
-                    "units": 5000,
-                    "scans": 24,
-                    "source": "api",
-                }
-                for k in range(8)
-            ],
-        ),
-    )
-    t = datetime(2026, 11, 16, 8, tzinfo=UTC)
-    base = {"name": "Rugged Leather", "quality": "COMMON", "item_class": "Trade Goods"}
-    store.upsert(
-        TABLES["items"],
-        to_arrow(
-            TABLES["items"],
-            [
-                {**base, "item_id": 8170, "level": 30, "fetched_at": t, "source": "api",
-                 "subclass": "Leather", "vendor_price": 500},
-                # A newer tooltip row (next day file) without details must not hide them.
-                {**base, "item_id": 8170, "level": 30, "fetched_at": t + timedelta(days=1),
-                 "source": "api"},
-            ],
-        ),
-    )  # fmt: skip
-    return archive
+        8170: _hourly(lambda h: 1500 if h >= JUMP else 1000, lambda h: 150 if h >= JUMP else 100),
+        2447: _hourly(lambda h: 50),  # Peacebloom (farmable): flat
+        13468: _hourly(lambda h: 2_000_000 + 20_000 * ((h - T0).days)),  # Black Lotus (scarce)
+    }
+    for item_id, rows in extra.items():
+        hours[item_id] = _merge(hours[item_id], rows)
+    if tweak:
+        tweak(hours)
+    house = []
+    for h in HOURS[:-1]:  # CET days 9 Nov 01:00 to 16 Nov 23:00
+        k = (h.astimezone(vd.TZ).date() - date(2026, 11, 9)).days
+        house.append(
+            {"hour": h, "observed_at": h, "gold_listed": 1_000_000_000 + 100_000_000 * k,
+             "auctions": 1000 + 10 * k, "units": 5000}
+        )  # fmt: skip
+    items = [
+        (8170, "Rugged Leather", "Trade Goods", "COMMON", "Leather", None, 500, 30)
+        if i == 8170
+        else (i, n, c)
+        for i, n, c, _, _ in SAMPLE_ITEMS
+    ]
+    data = make_archive(tmp_path, items, hours, house=house)
+    # A newer row (next day file) without details must not hide them.
+    newer = item_row((8170, "Rugged Leather", "Trade Goods"), FETCHED + timedelta(days=1))
+    store_of(data).write_day(ITEMS, (FETCHED + timedelta(days=1)).date(), pd.DataFrame([newer]))
+    return data
+
+
+@pytest.fixture
+def market(tmp_path):
+    return build_market(tmp_path)
 
 
 def test_overview_tiles_and_charts(market, config_dir):
@@ -96,9 +98,10 @@ def test_overview_tiles_and_charts(market, config_dir):
     tiles = {t["label"]: t for t in o["tiles"]}
     assert tiles["Items tracked"]["value"] == "9"
     assert tiles["Items tracked"]["foot"] == "9 pass filters"
-    # Weekly changes: Light Leather 0, Rugged Leather +50 %, Peacebloom 0, Black Lotus +7 %.
-    assert tiles["Median price · 7 d"]["change"] == {"text": "▲ +3.5 %", "dir": "rise"}
-    assert tiles["Median price · 7 d"]["foot"] == "farmable ± 0.0 %, scarce +7.0 %"
+    # Weekly changes: Rugged Leather +50 %, Peacebloom 0, Black Lotus +7 % (Light Leather
+    # ends at 08:00 CET on 16 Nov: no full last day, so no weekly change).
+    assert tiles["Median price · 7 d"]["change"] == {"text": "▲ +7.0 %", "dir": "rise"}
+    assert tiles["Median price · 7 d"]["foot"] == "farmable +25.0 %, scarce +7.0 %"
     assert tiles["Supply · 7 d"]["change"]["dir"] == "rise"
     assert tiles["Index divergence"]["value"].endswith(" pts")
     assert tiles["Gold listed · 7 d"]["extra"] and tiles["Gold listed · 7 d"]["coin"]["text"]
@@ -107,7 +110,7 @@ def test_overview_tiles_and_charts(market, config_dir):
     assert o["index"]["scarce"][-1] > 100 and o["index"]["farmable"][-1] > 100
     assert o["rhythm"]["hours"] == list(range(24)) and len(o["rhythm"]["labels"]) == 4
     groups = {r["name"]: r for r in o["rhythm"]["groups"]["rows"]}
-    assert groups["Leather chain"]["items"] == "2 items"  # the two with hourly data
+    assert groups["Leather chain"]["items"] == "4 items"  # all four have hourly rows
     assert o["rhythm"]["groups"]["sub"].endswith("lowest buyout, 07:00 vs 23:00")
     assert o["supply"]["sub"] == "9 Nov – 16 Nov 2026 · 8 d"
     assert len(o["supply"]["x"]) == len(HOURS)
@@ -178,7 +181,7 @@ def test_item_list_sorts_and_shows_details(market, config_dir):
     top = lst["rows"][0]
     assert top["name"] == "Rugged Leather" and top["class"] == "Leather · Trade Goods"
     assert top["change"] == {"text": "▲ +50 %", "dir": "rise"}
-    assert top["price"]["text"] == "14s 95c"
+    assert top["price"]["text"] == "15s"  # the newest hour (16 Nov 23:00 UTC)
     assert [r["name"] for r in b.item_list()["rows"][:2]] == ["Light Leather", "Peacebloom"]
     assert b.item_list("bogus")["sort"] == "sales"
 
@@ -188,10 +191,10 @@ def test_item_detail(market, config_dir):
     assert d["head"]["name"] == "Rugged Leather"
     assert d["head"]["sub"] == "Leather · Trade Goods · group Leather chain · 9 days of history"
     tiles = {t["label"]: t for t in d["tiles"]}
-    assert tiles["Lowest buyout"]["coin"]["text"] == "14s 95c"
+    assert tiles["Lowest buyout"]["coin"]["text"] == "15s"
     assert tiles["Lowest buyout"]["foot"][0]["change"]["dir"] == "rise"
     assert tiles["Vendor price (floor)"]["coin"]["text"] == "5s"
-    assert tiles["Vendor price (floor)"]["foot"] == ["buyout is 199.0 % above floor"]
+    assert tiles["Vendor price (floor)"]["foot"] == ["buyout is 200.0 % above floor"]
     assert tiles["7-day median"]["foot"][0] == "lower quartile "
     c = d["chart"]
     assert c["sub"] == "9 Nov – 16 Nov 2026 · 8 d · 6 h buckets"
@@ -234,13 +237,8 @@ def test_item_details_newest_non_null(market):
     assert 2447 not in item_details(market)
 
 
-def test_item_details_old_files_without_columns(tmp_path):
-    folder = tmp_path / "old"
-    (folder / "items").mkdir(parents=True)
-    pd.DataFrame({"item_id": [1], "name": ["X"], "fetched_at": [NOW()]}).to_parquet(
-        folder / "items" / "2026-11-16.parquet"
-    )
-    assert item_details(folder) == {}
+def test_item_details_without_details(tmp_path):
+    assert item_details(make_archive(tmp_path, [(1, "X", "Y")], {})) == {}
     assert item_details(tmp_path / "none") == {}
 
 
@@ -408,7 +406,7 @@ def test_week_change_ignores_a_partial_base_day():
     empty = pd.DataFrame(columns=["p25", "quantity"])
     partial = Item(2, "X", "Trade Goods", "COMMON", 60, 1.0)
     tiles = vd.item_tiles(partial, None, empty, changes.get(2), None, base, last)
-    assert tiles[0]["foot"] == ["latest price table"]
+    assert tiles[0]["foot"] == ["latest snapshot"]
     full = Item(1, "Y", "Trade Goods", "COMMON", 160, 1.0)
     tiles = vd.item_tiles(full, None, empty, changes.get(1), None, base, last)
     assert tiles[0]["foot"][0]["change"] == {"text": "▲ +50 %", "dir": "rise"}

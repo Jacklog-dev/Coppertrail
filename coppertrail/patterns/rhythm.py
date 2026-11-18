@@ -103,7 +103,7 @@ def _nights(full: pd.DataFrame) -> pd.DataFrame:
     number=1,
     title="Daily rhythm",
     min_days=7,
-    data=("hourly", "snapshot", "items"),
+    data=("hourly", "latest", "items"),
     method=(
         "Hourly min, p25 and quantity as an index (100 = the item's centred 25 h mean), "
         "by CET hour. Backtest: buy at the mean min 21:00-24:00, sell at the next "
