@@ -9,6 +9,7 @@ from pattern_fixtures import (
     snapshot_frame,
 )
 
+from coppertrail.patterns import rhythm as R
 from coppertrail.patterns.rhythm import confidence, daily_rhythm
 
 START = "2026-11-08 23:00"  # 00:00 CET on 9 Nov
@@ -41,7 +42,8 @@ def test_planted_rhythm_wins_most_nights():
     top = res.ranked.iloc[0]
     assert top["item_id"] == 1
     assert top["nights"] >= 8 and top["wins"] == top["nights"]
-    assert 0.1 < top["median_result"] < 0.25  # 1.1/0.9 * 0.95 - 1 = +16 %
+    # Sell capped at the usual price (1.0): 1.0/0.9 * 0.95 - 1 = +5.6 %
+    assert 0.03 < top["median_result"] < 0.09
     assert top["cheapest_hour"] in (20, 21, 22, 23, 0, 1)
     assert top["dearest_hour"] in (6, 7, 8, 9, 10)
     assert top["confidence"] == "medium"
@@ -71,3 +73,38 @@ def test_confidence_labels():
     assert confidence(8, 0.8) == "medium"
     assert confidence(5, 1.0) == "low"
     assert confidence(30, 0.5) == "low"
+
+
+def _thin_morning_item(item_id: int, base: float = 1000.0) -> pd.DataFrame:
+    """Evening at `base`, morning min spikes 20x on leftover listings."""
+    hod = local_hours(START, N)
+    shape = np.where((hod >= 6) & (hod <= 10), 20.0, 1.0)
+    return hourly_frame(item_id, START, {"min": base * shape * noise(N, item_id, 0.01)})
+
+
+def test_spiky_mornings_are_capped():
+    res = daily_rhythm(_ctx([_thin_morning_item(7), _rhythm_item(1)], [7, 1]))
+    nights = res.charts["nights"]
+    spiky = nights[nights["item_id"] == 7]
+    assert (spiky["raw_result"] > 10).all()  # the raw data keeps the spike
+    assert (spiky["result"] <= R.RESULT_CAP + 1e-9).all()
+    row = res.ranked.set_index("item_id").loc[7]
+    assert row["median_result"] < 0  # sold at the usual price, the cut makes it a loss
+    assert res.ranked.iloc[0]["item_id"] == 1
+
+
+def test_items_below_the_price_floor_are_not_ranked():
+    cheap = _rhythm_item(8)
+    cheap["min"] = cheap["min"] / 100  # about 10 copper
+    res = daily_rhythm(_ctx([cheap, _rhythm_item(1)], [8, 1]))
+    assert 8 not in set(res.ranked["item_id"])
+    assert res.items_checked == 2
+    assert "1 item" in res.note and "price floor" in res.note
+
+
+def test_single_hour_windows_do_not_count():
+    item = _rhythm_item(9)
+    local = item["hour"].dt.tz_convert("Europe/Berlin").dt.hour
+    item = item[~local.isin([8, 9])]  # only 07:00 left in each morning window
+    res = daily_rhythm(_ctx([item, _rhythm_item(1)], [9, 1]))
+    assert res.charts["nights"].query("item_id == 9").empty

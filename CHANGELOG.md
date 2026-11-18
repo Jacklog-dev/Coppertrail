@@ -17,3 +17,4 @@
 - GUI: Market overview, Item detail, Patterns and Movers & outliers views on real data
 - Windows build: single `Coppertrail.exe` (PyInstaller), no data bundled; workflow attaches it to tagged releases
 - Fixes: history and waiting messages respect the date range, no stale results after a pull, exe build checks for Qt and data files, release job holds the only write token, real minus signs, no false −100 %
+- Daily rhythm: sells at most at the usual price, needs 2 of 3 hours per window, caps nights at +100 %, skips items under 1 silver

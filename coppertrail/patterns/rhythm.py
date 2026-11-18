@@ -12,7 +12,11 @@ from coppertrail.patterns.common import finish_ranked
 # gaps (whole archive hours missing), so each side is the mean over the hours present.
 BUY_HOURS = (21, 22, 23)
 SELL_HOURS = (7, 8, 9)
-MIN_WINDOW_HOURS = 1
+MIN_WINDOW_HOURS = 2  # of the 3 hours per window; one lone hour is too spiky
+# Robustness (2026-11-18, Jack): mornings after a buy-out show the min of a few leftover
+# listings (20x the evening price), and a 1 copper step on a 10 copper item is 10 %.
+RESULT_CAP = 1.0  # nightly result counts at most +100 %; raw_result keeps the real value
+MIN_BUY_COPPER = 100  # items whose median evening buy price is below 1 silver are not ranked
 WINDOW = 25  # centred rolling mean, +/-12 h: the "daily mean" behind index 100
 MIN_PERIODS = 12
 HIT_WIN_RATE = 0.6
@@ -48,6 +52,10 @@ def _indexed(h: pd.DataFrame) -> pd.DataFrame:
         )
         full[f"{col}_trend"] = trend
         full[f"{col}_idx"] = 100 * full[col] / trend
+    # The usual price: a sell order above it is unlikely to fill in volume.
+    full["min_usual"] = g["min"].transform(
+        lambda s: s.rolling(WINDOW, center=True, min_periods=MIN_PERIODS).median()
+    )
     local = full["hour"].dt.tz_convert(TZ)
     full["hod"] = local.dt.hour
     full["day"] = local.dt.tz_localize(None).dt.normalize()
@@ -58,10 +66,15 @@ def _window(full: pd.DataFrame, hours: tuple[int, ...], name: str) -> pd.DataFra
     """Mean min and trend over the `hours` present, per item and local day."""
     w = full[full["hod"].isin(hours) & full["min"].notna()]
     out = w.groupby(["item_id", "day"]).agg(
-        n=("min", "size"), price=("min", "mean"), trend=("min_trend", "mean")
+        n=("min", "size"),
+        price=("min", "mean"),
+        trend=("min_trend", "mean"),
+        usual=("min_usual", "mean"),
     )
     out = out[out["n"] >= MIN_WINDOW_HOURS].drop(columns="n")
-    return out.rename(columns={"price": name, "trend": f"{name}_trend"}).reset_index()
+    return out.rename(
+        columns={"price": name, "trend": f"{name}_trend", "usual": f"{name}_usual"}
+    ).reset_index()
 
 
 def _nights(full: pd.DataFrame) -> pd.DataFrame:
@@ -69,10 +82,14 @@ def _nights(full: pd.DataFrame) -> pd.DataFrame:
     sell = _window(full, SELL_HOURS, "sell")
     sell["night"] = sell.pop("day") - pd.Timedelta(days=1)
     df = buy.merge(sell, on=["item_id", "night"]).dropna()
-    df = df[(df["buy"] > 0) & (df["buy_trend"] > 0)]
-    # Detrend: what the sell price would be had the item's rolling mean not moved overnight.
-    drift = df["sell_trend"] / df["buy_trend"]
-    df["result"] = df["sell"] * (1 - CUT) / (df["buy"] * drift) - 1
+    df = df[(df["buy"] > 0) & (df["buy_usual"] > 0)]
+    # Sell at the morning min, but never above the usual price: a morning min after a
+    # buy-out is the price of a few leftover listings, not one a sell order fills at.
+    sell = df[["sell", "sell_usual"]].min(axis=1)
+    # Detrend: what the sell price would be had the item's usual price not moved overnight.
+    # The rolling median, not the mean: morning spikes would bend a mean.
+    drift = df["sell_usual"] / df["buy_usual"]
+    df["result"] = (sell * (1 - CUT) / (df["buy"] * drift) - 1).clip(upper=RESULT_CAP)
     df["raw_result"] = df["sell"] * (1 - CUT) / df["buy"] - 1
     df["won"] = df["result"] > 0
     df["night"] = df["night"].dt.date
@@ -91,7 +108,9 @@ def _nights(full: pd.DataFrame) -> pd.DataFrame:
         "Hourly min, p25 and quantity as an index (100 = the item's centred 25 h mean), "
         "by CET hour. Backtest: buy at the mean min 21:00-24:00, sell at the next "
         "morning's mean min 07:00-10:00 (hours present) after the 5 % cut, detrended "
-        "by the overnight change of the rolling mean."
+        "by the overnight change of the usual price. The sell price never exceeds the "
+        "usual price (centred 25 h median of min), nightly results are capped at +100 % "
+        "and items under 1 silver are not ranked."
     ),
 )
 def daily_rhythm(ctx: Context) -> PatternResult:
@@ -114,6 +133,15 @@ def daily_rhythm(ctx: Context) -> PatternResult:
             note="No complete 22:00/07:00 night pairs.",
         )
 
+    buy_price = nights.groupby("item_id")["buy"].median()
+    cheap = buy_price[buy_price < MIN_BUY_COPPER].index
+    nights = nights[~nights["item_id"].isin(cheap)]
+    if nights.empty:
+        return PatternResult(
+            charts={"nights": nights, "typical_day": profile},
+            items_checked=items_checked,
+            note=f"Every item is below the price floor of {MIN_BUY_COPPER} copper.",
+        )
     per = nights.groupby("item_id").agg(
         wins=("won", "sum"),
         nights=("won", "size"),
@@ -139,9 +167,9 @@ def daily_rhythm(ctx: Context) -> PatternResult:
         & (per["nights"] >= HIT_MIN_NIGHTS)
     )
     order = {"high": 0, "medium": 1, "low": 2}
-    per = per.assign(_c=per["confidence"].map(order)).sort_values(
-        ["_c", "median_result"], ascending=[True, False]
-    )
+    per = per.assign(
+        _c=per["confidence"].map(order), _few=per["nights"] < HIT_MIN_NIGHTS
+    ).sort_values(["_c", "_few", "median_result", "win_rate"], ascending=[True, True, False, False])
     ranked = finish_ranked(per.reset_index(), ctx, RANKED_COLS)
 
     market = []
@@ -167,6 +195,10 @@ def daily_rhythm(ctx: Context) -> PatternResult:
         note=(
             f"Hit: median night > 0, at least {HIT_WIN_RATE:.0%} of nights won and "
             f"{HIT_MIN_NIGHTS} nights tested. "
+            f"Robust: each window needs {MIN_WINDOW_HOURS} of its 3 hours, a night counts "
+            f"at most +{RESULT_CAP:.0%}, and {len(cheap)} item{'' if len(cheap) == 1 else 's'} "
+            f"below the price floor of {MIN_BUY_COPPER} copper (median evening buy) "
+            f"{'is' if len(cheap) == 1 else 'are'} not ranked. "
             f"At most {most} nights per item, so confidence stays "
             f"{'medium or lower' if most < 20 else 'as labelled'}; "
             "no weekday effects are claimed."
