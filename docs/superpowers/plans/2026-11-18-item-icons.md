@@ -4,7 +4,7 @@
 
 **Goal:** Real item icons beside item names in the GUI, loaded by URL from Blizzard's render host, with no key needed at runtime.
 
-**Architecture:** A dev script builds `coppertrail/ui/web/data/icons.json` (item id -> icon file id) once from the media API. `coppertrail/ui/icons.py` turns ids into URLs; the bridge exposes `icons()`; `js/itemicon.js` caches the map and draws `<img>` or a fallback square.
+**Architecture:** A dev script builds `coppertrail/ui/web/icon-map.json` (item id -> icon file id) once from the media API. `coppertrail/ui/icons.py` turns ids into URLs; the bridge exposes `icons()`; `js/itemicon.js` caches the map and draws `<img>` or a fallback square.
 
 **Tech Stack:** Python 3.12, httpx (existing `BlizzardClient`), plain ES modules.
 
@@ -22,9 +22,9 @@
 
 - Offline or blocked image: fallback square, no broken-image glyph (`error` handler swaps it).
 - Item with no map entry (unknown to Blizzard): fallback square, never a request.
-- Missing or corrupt `icons.json` (fresh checkout, bad edit): `icon_url` returns None, app still starts.
+- Missing or corrupt `icon-map.json` (fresh checkout, bad edit): `icon_url` returns None, app still starts.
 - Script rerun after a patch: existing entries kept, new ones added, a failed lookup does not drop an entry.
-- Frozen exe: `icons.json` found through `devserver.web_dir()`.
+- Frozen exe: `icon-map.json` found through `devserver.web_dir()`.
 
 ---
 
@@ -39,7 +39,7 @@
 
 - [ ] Tests: `test_icon_url_builds_render_url` (`icon_url(2453, {2453: 134181})` endswith `/eu/icons/56/134181.jpg`), `test_icon_url_none_without_entry`, `test_load_map_missing_or_bad_file_is_empty`, `test_merge_keeps_old_and_ignores_none`, `test_media_icon_reads_file_data_id` (mock transport, like `test_blizzard_client.py`), `test_shipped_map_is_valid` (if file exists: all keys/values positive ints).
 - [ ] Run, see fail; implement; run, see pass.
-- [ ] Run the script against `private-next` with Jack's credentials; commit `icons.json`.
+- [ ] Run the script against `private-next` with Jack's credentials; commit `icon-map.json`.
 - [ ] Commit.
 
 ### Task 2: Bridge `icons()`

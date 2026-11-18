@@ -34,7 +34,7 @@ WEB_SUFFIXES = (
     ".txt",
 )  # fmt: skip
 # Exact paths allowed besides those: the item -> icon file id map (numbers, no market data).
-WEB_ALLOWED = ("coppertrail/ui/web/data/icons.json",)
+WEB_ALLOWED = ("coppertrail/ui/web/icon-map.json",)
 REQUIRED = ("coppertrail/ui/web/index.html", "coppertrail/ui/web/vendor/")
 
 

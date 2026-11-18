@@ -1,4 +1,4 @@
-"""Item icons: item id -> icon file id (shipped in `web/data/icons.json`) -> image URL.
+"""Item icons: item id -> icon file id (shipped in `web/icon-map.json`) -> image URL.
 
 The map is built once by `scripts/fetch_icon_map.py`. The images themselves are never stored;
 the page loads them from Blizzard's render host, which needs no key.
@@ -17,7 +17,7 @@ ICON_HOST = "https://render.worldofwarcraft.com"
 def map_path() -> Path:
     from coppertrail.ui.devserver import web_dir  # devserver imports the bridge
 
-    return web_dir() / "data" / "icons.json"
+    return web_dir() / "icon-map.json"
 
 
 def read_map(path: Path) -> dict[int, int]:

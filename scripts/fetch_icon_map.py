@@ -1,4 +1,4 @@
-"""Build the item -> icon file id map the GUI ships: `coppertrail/ui/web/data/icons.json`.
+"""Build the item -> icon file id map the GUI ships: `coppertrail/ui/web/icon-map.json`.
 
     uv run python scripts/fetch_icon_map.py                 # items known in $COPPERTRAIL_DATA
     uv run python scripts/fetch_icon_map.py --data-dir DIR  # another data folder
@@ -19,7 +19,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-OUT = ROOT / "coppertrail" / "ui" / "web" / "data" / "icons.json"
+OUT = ROOT / "coppertrail" / "ui" / "web" / "icon-map.json"
 
 log = logging.getLogger("fetch_icon_map")
 

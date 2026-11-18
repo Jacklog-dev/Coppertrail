@@ -19,7 +19,7 @@ stay out.
 
 1. **Item -> icon file id map shipped with the app, images by URL (picked).** A one-off dev
    script asks `/data/wow/media/item/{id}` once per item and writes
-   `coppertrail/ui/web/data/icons.json`. The app builds
+   `coppertrail/ui/web/icon-map.json`. The app builds
    `https://render.worldofwarcraft.com/eu/icons/56/<file_data_id>.jpg`; that host serves
    icons without a key (verified 2026-11-18). Rerun the script and release when a patch adds items.
 2. Nightly collector fetches icons into `window/` (rejected: nightly is auction data only).
