@@ -1,9 +1,11 @@
 """The nightly collector run (00:50 UTC).
 
-1. Rebuild the item selection from the latest full listings (the hourly run's state).
-2. Refresh stale item details (at most `MAX_ITEMS_PER_NIGHT`).
-3. Refresh the recipes on Mondays, or when there are none yet.
-4. Apply the summary retention, prune window/ (`window.keep_days`).
+1. Look up the listed items that have no details yet (at most `MAX_UNKNOWN_PER_NIGHT`), so
+   the selection rules see their quality and class instead of treating them as unclassified.
+2. Rebuild the item selection from the latest full listings (the hourly run's state).
+3. Refresh stale item details (at most `MAX_ITEMS_PER_NIGHT`).
+4. Refresh the recipes on Mondays, or when there are none yet.
+5. Apply the summary retention, prune window/ (`window.keep_days`).
 
 The workflow uploads window/ as the copied-data artifact and commits main.
 
@@ -27,6 +29,7 @@ from .window import keep_days, prune_summaries, prune_window
 log = logging.getLogger(__name__)
 
 MAX_ITEMS_PER_NIGHT = 3000
+MAX_UNKNOWN_PER_NIGHT = 8000  # all listed items fit (about 6,800), well within the timeout
 STATE_FILE = "listings.parquet"
 
 
@@ -51,17 +54,30 @@ def traded_gold(store: Store, today: date, rank_days: int) -> pd.Series:
     return value.groupby(df["item_id"]).sum()
 
 
-def build_todays_selection(cfg: Config, store: Store, now: datetime) -> int | None:
+def look_up_unknown(
+    client: BlizzardClient, store: Store, frame: pd.DataFrame, now: datetime
+) -> int:
+    """Look up listed items without a details row (at most `MAX_UNKNOWN_PER_NIGHT`)."""
+    known = set(known_items(store)["item_id"].astype(int))
+    unknown = sorted(int(i) for i in set(frame["item_id"].astype(int)) - known)
+    if not unknown:
+        return 0
+    batch = unknown[:MAX_UNKNOWN_PER_NIGHT]
+    refresh_items(client, store, batch, now)
+    log.info("item details: %d of %d unknown items looked up", len(batch), len(unknown))
+    return len(batch)
+
+
+def build_todays_selection(
+    cfg: Config, store: Store, now: datetime, frame: pd.DataFrame | None
+) -> int | None:
     """Write today's SELECTION from the state listings; None when there is no state."""
-    from .sales import load_state
     from .selection import build_selection, current_selection
     from .summarise import summarise
 
-    state = load_state(state_path(cfg), cfg.blizzard.house, now, cfg.retention.copied_days)
-    if state is None:
+    if frame is None:
         log.warning("no listings state yet: selection not rebuilt")
         return None
-    frame, _observed_at = state
     today = now.date()
     sel = build_selection(
         summarise(frame),
@@ -86,11 +102,17 @@ def main(
     store = Store(cfg.data_dir, cfg.window_dir)
     own_client = client is None
     try:
-        build_todays_selection(cfg, store, t)
+        from .sales import load_state
+
+        state = load_state(state_path(cfg), cfg.blizzard.house, t, cfg.retention.copied_days)
+        frame = state[0] if state is not None else None
         if client is None:
             from .credentials import load_credentials
 
             client = BlizzardClient(cfg.blizzard, *load_credentials())
+        if frame is not None:
+            look_up_unknown(client, store, frame, t)
+        build_todays_selection(cfg, store, t, frame)
         stale = stale_items(store, t)
         if len(stale) > MAX_ITEMS_PER_NIGHT:
             log.info("item details: %d stale, %d tonight", len(stale), MAX_ITEMS_PER_NIGHT)

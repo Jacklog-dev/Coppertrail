@@ -144,7 +144,9 @@ def test_nightly_writes_selection_and_prunes(data, wp1):
 
     calls = []
     route = lambda req: httpx.Response(200, json=item_detail(10, quality="RARE"))  # noqa: E731
-    with client({"/data/wow/item/10": route, **recipe_routes()}, calls) as c:
+    new = lambda req: httpx.Response(200, json=item_detail(20, quality="UNCOMMON"))  # noqa: E731
+    routes = {"/data/wow/item/10": route, "/data/wow/item/20": new, **recipe_routes()}
+    with client(routes, calls) as c:
         assert nightly.main(cfg, client=c, now=lambda: TUESDAY) == 0
 
     sel = pd.read_parquet(s.path(SELECTION, TUESDAY.date()))
@@ -152,11 +154,14 @@ def test_nightly_writes_selection_and_prunes(data, wp1):
     summary, details, traded, sel_cfg, previous, day = wp1["build_args"]
     assert day == TUESDAY.date() and previous == set() and sel_cfg == cfg.selection
     assert traded.to_dict() == {10: 450.0, 20: 120.0}
-    assert details["item_id"].tolist() == [10]
+    # 20 was listed but unknown: looked up before the selection, so the rules see it
+    assert details.set_index("item_id")["quality"].to_dict() == {10: "COMMON", 20: "UNCOMMON"}
+    paths = [r.url.path for r in calls]
+    assert paths.index("/data/wow/item/20") < paths.index("/data/wow/item/10")  # unknown first
     assert not any("/profession/" in r.url.path for r in calls)  # Tuesday, recipes present
 
     items = pd.read_parquet(s.path(ITEMS, TUESDAY.date()))
-    assert items["quality"].tolist() == ["RARE"]
+    assert items.set_index("item_id")["quality"].to_dict() == {10: "RARE", 20: "UNCOMMON"}
     assert s.files(ITEMS) == [s.path(ITEMS, TUESDAY.date())]
     assert s.files(RECIPES) == [s.path(RECIPES, old.date())]
     assert (cfg.window_dir / "old.txt").read_text() == "yesterday"
@@ -196,3 +201,14 @@ def test_nightly_error_exits_1(tmp_path, wp1):
     cfg = load_config(tmp_path)  # window/ is not a git checkout
     with client({}, []) as c:
         assert nightly.main(cfg, client=c, now=lambda: TUESDAY) == 1
+
+
+def test_unknown_lookup_is_capped(data, wp1, monkeypatch):
+    cfg = load_config(data)
+    monkeypatch.setattr(nightly, "MAX_UNKNOWN_PER_NIGHT", 1)
+    wp1["state"] = (state_frame(), TUESDAY - timedelta(minutes=28))  # items 10 and 20
+    calls = []
+    with client(recipe_routes(), calls) as c:
+        assert nightly.main(cfg, client=c, now=lambda: TUESDAY) == 0
+    looked_up = [r.url.path for r in calls if r.url.path.startswith("/data/wow/item/")]
+    assert looked_up[0] == "/data/wow/item/10" and "/data/wow/item/20" not in looked_up

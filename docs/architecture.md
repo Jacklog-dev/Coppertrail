@@ -69,8 +69,10 @@ sequenceDiagram
     WF->>Git: commit and push the new hour (rebase and retry, never force)
 ```
 
-The nightly run is the same frame: it rebuilds `selection/<day>.parquet` from the
-latest listings, refreshes item details older than 7 days and the recipes on Mondays,
+The nightly run is the same frame: it first looks up every listed item that has no
+details yet (up to 8,000, so the rules see real quality and class instead of
+"unclassified"), then rebuilds `selection/<day>.parquet` from the latest listings,
+refreshes item details older than 7 days and the recipes on Mondays,
 applies `summary_retention_days`, prunes `window/`, uploads the artifact and commits main.
 
 ## Why no copy outlives 30 days
