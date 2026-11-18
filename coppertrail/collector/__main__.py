@@ -1,34 +1,44 @@
-"""CLI: python -m coppertrail.collector run [--data-dir DIR] [--config FILE]."""
+"""CLI: python -m coppertrail.collector [--data-dir DIR] [-v] {hourly,nightly}.
+
+Exit codes: 0 ok or not modified, 1 failed, 2 another run holds the lock.
+The lock (`<data-dir>/.lock`) is taken here, so the runs themselves never lock.
+"""
 
 from __future__ import annotations
 
 import argparse
+import importlib
 import logging
 import os
 import sys
-from datetime import UTC, datetime
 from pathlib import Path
 
-from .legacy.config import load_config
-from .legacy.gaps import format_summary, gap_report
-from .legacy.run import Collector
-from .legacy.store import WATCHLIST, Store
+from .config import load_config
+from .lock import LockError, RunLock
 
 DEFAULT_DATA_DIR = "private"
+EXIT_OK, EXIT_FAILED, EXIT_LOCKED = 0, 1, 2
+
+log = logging.getLogger("coppertrail.collector")
 
 
-def _setup_logging(data_dir: Path, verbose: bool) -> Path:
+def _setup_logging(data_dir: Path, verbose: bool) -> None:
     log_dir = data_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    path = log_dir / f"collector-{datetime.now(UTC):%Y-%m-%d}.log"
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(message)s", "%Y-%m-%dT%H:%M:%S")
     root = logging.getLogger()
     root.setLevel(logging.DEBUG if verbose else logging.INFO)
-    for h in (logging.StreamHandler(sys.stdout), logging.FileHandler(path, encoding="utf-8")):
+    for h in [h for h in root.handlers if getattr(h, "_coppertrail", False)]:
+        root.removeHandler(h)
+        h.close()
+    for h in (
+        logging.StreamHandler(sys.stderr),
+        logging.FileHandler(log_dir / "collector.log", encoding="utf-8"),
+    ):
         h.setFormatter(fmt)
+        h._coppertrail = True
         root.addHandler(h)
     logging.getLogger("httpx").setLevel(logging.WARNING)
-    return path
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -37,47 +47,32 @@ def main(argv: list[str] | None = None) -> int:
         "--data-dir",
         type=Path,
         default=Path(os.environ.get("COPPERTRAIL_DATA", DEFAULT_DATA_DIR)),
-        help="data directory (default: $COPPERTRAIL_DATA or ./private)",
-    )
-    p.add_argument(
-        "--config",
-        type=Path,
-        default=None,
-        help="TOML file with a [collector] table (default: <data-dir>/collector.toml if present)",
+        help="data repo checkout (main); the window branch is checked out in <data-dir>/window",
     )
     p.add_argument("-v", "--verbose", action="store_true")
     sub = p.add_subparsers(dest="cmd", required=True)
-    r = sub.add_parser("run", help="collect once (resumes an interrupted run)")
-    r.add_argument("--max-items", type=int, help="limit the watchlist (for testing)")
-    r.add_argument("--no-scans", action="store_true", help="skip per-scan (24h) data")
-    sub.add_parser("gaps", help="print the gap report for the latest watchlist")
+    sub.add_parser("hourly", help="fetch the latest snapshot and write its hour")
+    sub.add_parser("nightly", help="rebuild the selection, refresh master data, prune the window")
     args = p.parse_args(argv)
 
     data_dir: Path = args.data_dir
-    cfg = load_config(args.config or data_dir / "collector.toml")
     _setup_logging(data_dir, args.verbose)
+    try:
+        cfg = load_config(data_dir)
+    except ValueError as exc:
+        log.error("%s", exc)
+        return EXIT_FAILED
 
-    if args.cmd == "run":
-        if args.no_scans:
-            cfg.fetch_scans = False
-        if args.max_items:
-            cfg.max_items = args.max_items
-        return Collector(cfg, data_dir).run()
-
-    if args.cmd == "gaps":
-        store = Store(data_dir)
-        tbl = store.query(
-            "SELECT item_id FROM {w} WHERE run_id = (SELECT max(run_id) FROM {w})", w=WATCHLIST.name
-        )
-        if tbl is None:
-            print("no watchlist yet")
-            return 1
-        rows, market = gap_report(
-            store, tbl.column("item_id").to_pylist(), datetime.now(UTC), cfg.gap_window_hours, "cli"
-        )
-        print(format_summary(rows, market))
-        return 0
-    return 2
+    run = importlib.import_module(f"coppertrail.collector.{args.cmd}").main
+    try:
+        with RunLock(data_dir / ".lock"):
+            return run(cfg)
+    except LockError as exc:
+        log.error("%s", exc)
+        return EXIT_LOCKED
+    except Exception:
+        log.exception("%s run failed", args.cmd)
+        return EXIT_FAILED
 
 
 if __name__ == "__main__":

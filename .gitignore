@@ -29,3 +29,6 @@ Thumbs.db
 
 # Private handover and design package (lives in the private repo)
 private/
+
+# The new data repo while it is being built (WP5); never part of this repo
+private-next/
