@@ -167,26 +167,28 @@ def test_spreads_rows_by_recipe_with_signed_coins():
     assert loss["values"] == [None, None, -1000.0]
 
 
-def test_events_jobs_chart_scans_with_markers():
+def test_events_jobs_chart_snapshots_with_markers():
     t = datetime(2026, 11, 16, 10, tzinfo=UTC)
-    scans = pd.DataFrame(
+    snaps = [t, t + timedelta(hours=1), t + timedelta(hours=2)]
+    hourly = pd.DataFrame(
         {
             "item_id": [1, 1, 1],
-            "observed_at": [t, t + timedelta(minutes=30), t + timedelta(minutes=60)],
+            "hour": snaps,
+            "observed_at": [s + timedelta(minutes=22) for s in snaps],
             "min": [100.0, 40.0, 100.0],
             "p25": [110.0, 110.0, 110.0],
             "median": [120.0] * 3,
             "p75": [130.0] * 3,
             "quantity": [50, 40, 50],
             "auctions": [5, 5, 5],
-            "source": ["api"] * 3,
+            "source": ["blizzard"] * 3,
         }
     )
     ev = events_frame(
         [
             {
                 "item_id": 1,
-                "at": t + timedelta(minutes=30),
+                "at": snaps[1] + timedelta(minutes=22),
                 "type": "mispricing",
                 "detail": "min −64 %",
                 "magnitude": -0.64,
@@ -202,10 +204,10 @@ def test_events_jobs_chart_scans_with_markers():
     )  # fmt: skip
     by_hour = pd.DataFrame({"hour": range(24), "events": [0] * 11 + [1] + [0] * 12})
     r = _result("mispricings", ranked, {"by_hour": by_hour}, events=ev)
-    p = pv.build(r, make_ctx(scans=scans), select=None, item=None, sort=None)
+    p = pv.build(r, make_ctx(hourly=hourly), select=None, item=None, sort=None)
     scan_chart, hours = p["charts"]
     assert scan_chart["markers"] == [
-        {"t": int((t + timedelta(minutes=30)).timestamp()), "kind": "mispricing",
+        {"t": int((snaps[1] + timedelta(minutes=22)).timestamp()), "kind": "mispricing",
          "label": "Mispricing · min −64 %"}
     ]  # fmt: skip
     assert scan_chart["series"][0]["values"] == [100.0, 40.0, 100.0]
@@ -282,15 +284,13 @@ def test_short_archive_keeps_the_ready_date(market, config_dir):  # noqa: F811
 
 
 def _add_build(archive, day):
-    from coppertrail.collector.legacy.store import TABLES, Store, to_arrow
+    from coppertrail.collector.store import BUILDS
+    from coppertrail.query.series import store_of
 
     at = datetime(day.year, day.month, day.day, 15, tzinfo=UTC)
-    row = {
-        "build_id": 1, "version": "1.60.1", "stage": "", "title": "WoW Forever 1.60.1",
-        "published_at": at, "url": "https://example.invalid/b1", "description": "",
-        "source": "api", "run_id": "r", "fetched_at": at,
-    }  # fmt: skip
-    Store(archive).upsert(TABLES["builds"], to_arrow(TABLES["builds"], [row]))
+    row = {"version": "1.60.1", "build": 1, "namespace": "static-1.60.1_1-forever-eu",
+           "first_seen": at}  # fmt: skip
+    store_of(archive).write_day(BUILDS, day, pd.DataFrame([row]))
 
 
 def test_builds_outside_the_range_are_not_waiting(market, config_dir):  # noqa: F811

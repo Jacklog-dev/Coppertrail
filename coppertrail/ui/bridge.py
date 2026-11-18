@@ -16,10 +16,8 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, ClassVar
 
-import duckdb
 import pandas as pd
 
-from coppertrail.collector.legacy.store import TABLES, Store
 from coppertrail.patterns import REGISTRY, Context, PatternResult
 from coppertrail.patterns import run as run_pattern
 from coppertrail.patterns.inflation import classify
@@ -41,7 +39,6 @@ from coppertrail.ui import viewdata as vd
 from coppertrail.ui.pull import COMMAND, NO_GIT, NOT_A_CLONE, PullResult, can_pull, run_pull
 from coppertrail.ui.viewdata import coin, plural
 
-AHLEDGER_URL = "https://ahledger.com"
 STALE_AFTER_DAYS = 2
 PREVIEW_ROWS = 300
 UNREADABLE = "Could not read this data folder"
@@ -261,32 +258,15 @@ class Memo:
 
 def item_details(data_dir: Path) -> dict[int, dict]:
     """item_id -> {subclass, vendor_price}: the newest non-null value of each (thin helper).
-
-    Tooltip rows carry no subclass or vendor price, and day files written before the
-    collector fetched them lack the columns: those give no entry.
-    """
-    store = Store(data_dir)
-    files = [str(p).replace("\\", "/") for p in store.day_files(TABLES["items"])]
-    if not files:
-        return {}
-    src = "read_parquet([" + ", ".join(f"'{f}'" for f in files) + "], union_by_name=true)"
-    con = duckdb.connect()
-    try:
-        cols = {r[0] for r in con.sql(f"DESCRIBE SELECT * FROM {src}").fetchall()}
-        wanted = [c for c in ("subclass", "vendor_price") if c in cols]
-        if not wanted:
-            return {}
-        aggs = ", ".join(
-            f"arg_max({c}, fetched_at) FILTER (WHERE {c} IS NOT NULL) AS {c}" for c in wanted
-        )
-        rows = con.sql(f"SELECT item_id, {aggs} FROM {src} GROUP BY item_id").fetchall()
-    finally:
-        con.close()
+    Items without either give no entry."""
     out = {}
-    for row in rows:
-        d = dict(zip(wanted, row[1:], strict=True))
+    for r in series.item_details(data_dir).itertuples(index=False):
+        d = {
+            "subclass": r.subclass if isinstance(r.subclass, str) else None,
+            "vendor_price": None if pd.isna(r.vendor_price) else int(r.vendor_price),
+        }
         if any(v is not None for v in d.values()):
-            out[int(row[0])] = d
+            out[int(r.item_id)] = d
     return out
 
 
@@ -381,12 +361,13 @@ class Bridge:
         # Any failure (unreadable or foreign parquet, DuckDB errors) leaves an empty archive
         # and an error in the status strip; it must never stop the app from opening.
         try:
-            items, status = load_items(self.data_dir), archive_status(self.data_dir)
+            items = load_items(self.data_dir)
+            status = archive_status(self.data_dir, now=self._now())
             error = ""
         except Exception as exc:  # noqa: BLE001
             items, status, error = (
                 [],
-                ArchiveStatus(None, None, None),
+                ArchiveStatus(None, None),
                 f"{type(exc).__name__}: {exc}",
             )
         self.items: list[Item] = items
@@ -460,7 +441,8 @@ class Bridge:
             # the views ask again even when a pull added rows without a newer as_of.
             "generation": self.memo.generation,
             "status": self._status(),
-            "creditUrl": AHLEDGER_URL,
+            "creditText": fmt.CREDIT_TEXT,
+            "creditUrl": fmt.CREDIT_URL,
             "filters": f.to_json(),
             "active": active,
             "activeLabel": (f"{plural(len(active), 'filter')} active" if active else "No filters"),
@@ -654,11 +636,12 @@ class Bridge:
 
         return self._memo(inp, ("week", str(inp.data_dir), inp.status.as_of), compute)
 
-    def _economy(self, inp: ViewInputs) -> pd.DataFrame:
+    def _house(self, inp: ViewInputs) -> pd.DataFrame:
+        """Whole-house totals per CET day (from one house row per snapshot)."""
         return self._memo(
             inp,
-            ("economy", str(inp.data_dir), inp.status.as_of),
-            lambda: series.economy(inp.data_dir),
+            ("house", str(inp.data_dir), inp.status.as_of),
+            lambda: vd.house_daily(series.house(inp.data_dir)),
         )
 
     def _details(self, inp: ViewInputs) -> dict[int, dict]:
@@ -684,7 +667,7 @@ class Bridge:
         frame = pd.DataFrame(
             {"item_id": [i.item_id for i in inp.shown], "name": [i.name for i in inp.shown]}
         )
-        economy = self._economy(inp)
+        house = self._house(inp)
         out: dict[str, Any] = {"sub": sub}
 
         def section(name: str, build: Callable[[], Any]) -> None:
@@ -709,12 +692,12 @@ class Bridge:
                 daily=week_shown,
                 classes=classify(frame),
                 inflation=inflation,
-                economy=economy,
+                house=house,
             ),
         )
         section("rhythm", lambda: self._rhythm(inp, ctx))
         section("supply", lambda: vd.supply_chart(ctx.hourly, lo, hi, vd.week_supply(week_shown)))
-        section("gold", lambda: vd.gold_chart(economy, lo, hi))
+        section("gold", lambda: vd.gold_chart(house, lo, hi))
         return out
 
     def _rhythm(self, inp: ViewInputs, ctx: Context) -> dict:
@@ -798,13 +781,13 @@ class Bridge:
         events = (
             pd.concat(frames, ignore_index=True).sort_values("at") if frames else vd.empty_events()
         )
-        snap = ctx.snapshot
+        latest = ctx.latest
         groups = [g.name for g in inp.groups if g.matches(item)]
         return {
             "head": vd.item_header(item, detail.get("subclass"), groups, history),
             "tiles": vd.item_tiles(
                 item,
-                snap.iloc[-1] if len(snap) else None,
+                latest.iloc[-1] if len(latest) else None,
                 window,
                 vd.week_change(self._week(inp)).get(item_id),  # as in the item list
                 vendor,
@@ -954,7 +937,7 @@ class Bridge:
         return self._memo(inp, ("movers", rng, *inp.key), compute)
 
     def mispricings_now(self, threshold: float = mv.DEFAULT_THRESHOLD) -> dict:
-        """Current mispricings (job `mispricings` over the last two days of scans)."""
+        """Current mispricings (job `mispricings` over the last two days of snapshots)."""
         inp = self._inputs()
         threshold = mv.threshold_of(threshold)
 
@@ -973,7 +956,7 @@ class Bridge:
                     if g.matches(item):
                         group_of[item.item_id] = g.name
                         break
-            return mv.mispricings_now(res, ctx.scans, inp.shown, group_of, threshold)
+            return mv.mispricings_now(res, ctx.hourly, inp.shown, group_of, threshold)
 
         return self._memo(inp, ("mispricings_now", threshold, *inp.key), compute)
 

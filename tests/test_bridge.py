@@ -5,6 +5,17 @@ from datetime import UTC, datetime
 from coppertrail.query.groups import load_groups
 from coppertrail.query.settings import Filters, load_settings
 from coppertrail.ui.bridge import Bridge
+from coppertrail.ui.format import CREDIT_TEXT, CREDIT_URL
+
+
+def _keys(d):
+    if isinstance(d, dict):
+        for k, v in d.items():
+            yield k
+            yield from _keys(v)
+    elif isinstance(d, list):
+        for v in d:
+            yield from _keys(v)
 
 
 def NOW():  # noqa: N802
@@ -22,7 +33,8 @@ def test_state_loads_archive(archive, config_dir):
     assert not s["status"]["stale"] and not s["status"]["empty"]
     assert s["status"]["canPull"] is False
     assert s["status"]["pullHint"] == "The data folder is not a git clone"
-    assert s["creditUrl"] == "https://ahledger.com"
+    assert s["creditText"] == CREDIT_TEXT and s["creditUrl"] == CREDIT_URL
+    assert not [k for k in _keys(s) if "cutoff" in k.lower()]
     assert s["classes"] == ["Trade Goods", "Consumable"]
     row = next(r for r in s["items"]["rows"] if r["name"] == "Rugged Leather")
     assert row == {
@@ -158,8 +170,8 @@ def test_exposed_methods_exist():
 
 def _corrupt_folder(tmp_path):
     bad = tmp_path / "bad"
-    (bad / "items").mkdir(parents=True)
-    (bad / "items" / "2026-11-16.parquet").write_bytes(b"not a parquet file")
+    (bad / "window" / "items").mkdir(parents=True)
+    (bad / "window" / "items" / "2026-11-16.parquet").write_bytes(b"not a parquet file")
     return bad
 
 

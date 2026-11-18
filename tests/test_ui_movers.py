@@ -1,10 +1,12 @@
 """Movers & outliers payloads (coppertrail/ui/movers.py and Bridge.movers / mispricings_now)."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
-from test_bridge_views import market  # noqa: F401 - shared fixture
+from test_bridge_views import (
+    build_market,
+    market,  # noqa: F401 - shared fixture
+)
 
-from coppertrail.collector.legacy.store import TABLES, Store, to_arrow
 from coppertrail.ui.bridge import Bridge
 
 
@@ -23,7 +25,7 @@ def test_movers_week(market, config_dir):  # noqa: F811
     assert top["id"] == 8170 and top["dir"] == "rise"
     assert top["change"] == {"text": "▲ +50 %", "dir": "rise"}
     assert top["supply"] == "+50 % supply"
-    assert top["sales"] == "9,221" and top["price"]["text"] == "14s 95c"
+    assert top["sales"] == "9,221" and top["price"]["text"] == "15s"
     assert len(top["spark"]) == 8  # one point per full CET day
     assert m["fallers"]["rows"] == [] and m["fallers"]["note"]
 
@@ -38,34 +40,33 @@ def test_movers_day_and_month(market, config_dir):  # noqa: F811
     assert b.movers("bogus")["range"] == "7d"
 
 
-def test_mispricings_now(market, config_dir):  # noqa: F811
-    t0 = datetime(2026, 11, 16, 10, tzinfo=UTC)
+def test_mispricings_now(tmp_path, config_dir):
     dip = datetime(2026, 11, 16, 20, tzinfo=UTC)
-    rows = []
-    for k in range(25):  # every 30 min, 10:00 to 22:00 UTC
-        t = t0 + timedelta(minutes=30 * k)
-        low = 300 if t == dip else 1000
-        rows.append(
-            {
-                "item_id": 8170, "observed_at": t, "min": low, "p25": 1100, "median": 1200,
-                "p75": 1300, "quantity": 40 if t == dip else 50, "auctions": 5,
-                "source": "api", "run_id": "r", "fetched_at": t,
-            }
-        )  # fmt: skip
-    Store(market).upsert(TABLES["scans"], to_arrow(TABLES["scans"], rows))
-    b = Bridge(market, now=NOW)
+
+    def plant(hours):
+        for r in hours[8170]:
+            if r["hour"] == dip:
+                r.update(min=300, quantity=40)
+
+    b = Bridge(build_market(tmp_path, plant), now=NOW)
     m = b.mispricings_now(0.7)
     assert m["threshold"] == 0.7
     assert [t["label"] for t in m["thresholds"]] == [
         "below 50 %", "below 60 %", "below 70 %"
     ]  # fmt: skip
-    assert m["sub"] == "16 Nov 2026, 23:00 · last 24 h · 1 item"
+    assert m["sub"] == "17 Nov 2026, 00:00 · last 24 h · 1 item"  # newest snapshot, CET
     row = m["rows"][0]
     assert row["id"] == 8170 and row["name"] == "Rugged Leather"
     assert row["group"] == "Leather chain"
-    assert row["price"]["text"] == "3s" and row["usual"]["text"] == "11s"  # 6 h median p25
-    assert row["discount"] == {"text": "▼ −73 %", "dir": "fall"}
-    assert row["range"] == {"low": 1100.0, "high": 1300.0, "usual": 1100.0, "current": 300.0}
-    assert row["qty"] == "40" and row["seen"] == "21:00"
-    assert b.mispricings_now(0.5)["rows"][0]["id"] == 8170  # 27 % of usual: below 50 %
+    assert row["price"]["text"] == "3s" and row["usual"]["text"] == "15s 10c"  # 6 h median p25
+    assert row["discount"] == {"text": "▼ −80 %", "dir": "fall"}
+    assert row["range"] == {"low": 1510.0, "high": 1530.0, "usual": 1510.0, "current": 300.0}
+    # The newest snapshot is on 17 Nov (CET), so the 16 Nov dip shows its date.
+    assert row["qty"] == "40" and row["seen"] == "16 Nov, 21:00"
+    assert b.mispricings_now(0.5)["rows"][0]["id"] == 8170  # 20 % of usual: below 50 %
     assert b.mispricings_now(0.1)["threshold"] == 0.7  # unknown thresholds fall back
+
+
+def test_mispricings_now_empty_archive(tmp_path, config_dir):
+    m = Bridge(tmp_path / "none", now=NOW).mispricings_now()
+    assert m["rows"] == [] and "scan" not in (m.get("note", "") + m.get("sub", "")).lower()

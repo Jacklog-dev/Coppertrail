@@ -44,7 +44,7 @@ SHORT_METHOD = {
     "weekday_reset": "Price and supply by weekday · 100 = centred 7-day mean",
     "mispricings": "Min buyout 30 % below the 6 h median of p25",
     "supply_shocks": "Quantity at least double its 24 h baseline for 2 h",
-    "buyouts": "Quantity −40 % and min buyout +20 % from one scan to the next",
+    "buyouts": "Quantity −40 % and min buyout +20 % from one snapshot to the next",
     "mean_reversion": "15 % below the 7-day mean · recovery within 3 days",
     "processing_spreads": "Margin = product after 5 % cut − inputs at lowest buyout",
     "progression_wave": "Median per level band · 100 = first day",
@@ -630,13 +630,13 @@ def _markers(events: pd.DataFrame | None, item_id: int) -> list[dict]:
 def _scan_chart(
     r: PatternResult, ctx: Context, item_id: int, name: str, extra: str, *, p25: bool
 ) -> dict:
-    title = f"{name} — every scan"
-    sc = _item_rows(ctx.scans, item_id).sort_values("observed_at")
+    title = f"{name} — every snapshot"
+    sc = _item_rows(ctx.hourly, item_id).sort_values("observed_at")
     if sc.empty:
-        return note_chart(title, _span(r), "No scans of this item in the range.")
+        return note_chart(title, _span(r), "No snapshots of this item in the range.")
     first = sc["observed_at"].iloc[0].tz_convert(fmt.LOCAL_TZ).date()
     last = sc["observed_at"].iloc[-1].tz_convert(fmt.LOCAL_TZ).date()
-    sub = " · ".join([fmt.date_range(first, last), plural(len(sc), "scan"), extra])
+    sub = " · ".join([fmt.date_range(first, last), plural(len(sc), "snapshot"), extra])
     s = [series("Lowest buyout", "s1", nums(sc["min"], 1), width="primary")]
     if p25:
         s.append(series("Lower quartile", "s2", nums(sc["p25"], 1)))

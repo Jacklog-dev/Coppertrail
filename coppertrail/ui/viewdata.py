@@ -167,7 +167,7 @@ def overview_tiles(
     daily: pd.DataFrame,
     classes: pd.Series,
     inflation: PatternResult | None,
-    economy: pd.DataFrame,
+    house: pd.DataFrame,
 ) -> list[dict]:
     """The headline tiles; the last two only show from 2400 px (`extra`)."""
     changes = week_change(daily)
@@ -179,8 +179,8 @@ def overview_tiles(
             foot.append(f"{group} {fmt.signed_percent(float(part.median()))}")
     supply, units = week_supply(daily)
     div = _latest_divergence(inflation)
-    gold_now, gold_change = _economy_week(economy, "value")
-    auctions_now, auctions_change = _economy_week(economy, "auctions")
+    gold_now, gold_change = _house_week(house, "gold_listed")
+    auctions_now, auctions_change = _house_week(house, "auctions")
     return [
         {
             "label": "Items tracked",
@@ -233,9 +233,23 @@ def _latest_divergence(result: PatternResult | None) -> float | None:
     return float(v) if finite(v) else None
 
 
-def _economy_week(economy: pd.DataFrame, col: str) -> tuple[float | None, float | None]:
-    """Latest value of an economy column and its change against 7 days earlier."""
-    e = economy.dropna(subset=[col]).sort_values("day")
+HOUSE_DAILY_COLS = ["day", "gold_listed", "auctions", "units"]
+
+
+def house_daily(house: pd.DataFrame) -> pd.DataFrame:
+    """Per CET day the median over the house rows (one per snapshot) of gold listed
+    (copper), auctions and units."""
+    if house.empty:
+        return pd.DataFrame(columns=HOUSE_DAILY_COLS)
+    h = house.assign(day=house["hour"].dt.tz_convert(TZ).dt.date)
+    cols = ["gold_listed", "auctions", "units"]
+    d = h.groupby("day")[cols].median()
+    return d.astype("float64").reset_index()[HOUSE_DAILY_COLS]
+
+
+def _house_week(house: pd.DataFrame, col: str) -> tuple[float | None, float | None]:
+    """Latest daily value of a house column and its change against 7 days earlier."""
+    e = house.dropna(subset=[col]).sort_values("day")
     if e.empty:
         return None, None
     last_day, last = e["day"].iloc[-1], float(e[col].iloc[-1])
@@ -355,17 +369,17 @@ def supply_chart(
     return out
 
 
-def gold_chart(economy: pd.DataFrame, lo: date, hi: date) -> dict:
-    """Total gold listed per day (economy totals: the whole market, not the filter)."""
+def gold_chart(house: pd.DataFrame, lo: date, hi: date) -> dict:
+    """Total gold listed per CET day (`house_daily`: the whole market, not the filter)."""
     out: dict = {"sub": range_sub(lo, hi, "whole market")}
-    e = economy[(economy["day"] >= lo) & (economy["day"] <= hi)].dropna(subset=["value"])
+    e = house[(house["day"] >= lo) & (house["day"] <= hi)].dropna(subset=["gold_listed"])
     if e.empty:
         out["note"] = "No market totals in this range."
         return out
     e = e.sort_values("day")
     out["x"] = [local_midnight(d) for d in e["day"]]
-    out["values"] = nums(e["value"], 0)
-    last, change = _economy_week(economy[economy["day"] <= hi], "value")
+    out["values"] = nums(e["gold_listed"], 0)
+    last, change = _house_week(house[house["day"] <= hi], "gold_listed")
     out["value"] = coin(last)
     out["change"] = fmt.change(change)
     return out
@@ -512,7 +526,7 @@ def item_header(item: Item, subclass: str | None, groups: list[str], history_day
 
 def item_tiles(
     item: Item,
-    snapshot: pd.Series | None,
+    latest: pd.Series | None,
     window: pd.DataFrame,
     week_change: float | None,
     vendor_price: int | None,
@@ -522,7 +536,7 @@ def item_tiles(
     """`week_change`: the item's `week_change()` value (full CET days at both ends), so the
     header's "vs 7 d ago" and the item list show the same number."""
     low = item.min_buyout
-    median_7d = None if snapshot is None else snapshot.get("median_7d")
+    median_7d = None if latest is None else latest.get("median_7d")
     p25 = window["p25"].tail(24 * WEEK).median() if len(window) else None
     qty = window["quantity"].dropna()
     days = (hi - lo).days + 1
@@ -544,7 +558,7 @@ def item_tiles(
             "coin": coin(low),
             "foot": [{"change": fmt.change(price_change)}, " vs 7 d ago"]
             if price_change is not None
-            else ["latest price table"],
+            else ["latest snapshot"],
         },
         {
             "label": "7-day median",
@@ -554,7 +568,7 @@ def item_tiles(
         {
             "label": "Sales per day",
             "value": fmt.count(item.sales_per_day),
-            "foot": ["latest price table"],
+            "foot": ["last 7 days"],
         },
         {
             "label": "Listed quantity",
