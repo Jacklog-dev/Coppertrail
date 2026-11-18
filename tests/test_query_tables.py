@@ -1,26 +1,14 @@
 from datetime import UTC, date, datetime
 
-from coppertrail.collector.legacy.store import TABLES, Store, to_arrow
+import pandas as pd
+
+from coppertrail.collector.store import ITEMS
 from coppertrail.patterns.base import Context
-from coppertrail.query.series import builds, item_details, recipes
+from coppertrail.query.series import builds, item_details, recipes, store_of
+from tests.new_archive import item_row, make_archive
 
 T1 = datetime(2026, 11, 17, 6, 0, tzinfo=UTC)
 T2 = datetime(2026, 11, 18, 6, 0, tzinfo=UTC)
-
-
-def _item(item_id, fetched_at, vendor=None, subclass=None):
-    return {
-        "item_id": item_id,
-        "name": "Rugged Leather",
-        "quality": "COMMON",
-        "item_class": "Trade Goods",
-        "level": 50,
-        "fetched_at": fetched_at,
-        "source": "api",
-        "subclass": subclass,
-        "required_level": None,
-        "vendor_price": vendor,
-    }
 
 
 def test_empty_tables_give_typed_frames(tmp_path):
@@ -29,75 +17,79 @@ def test_empty_tables_give_typed_frames(tmp_path):
     assert item_details(tmp_path).empty and "vendor_price" in item_details(tmp_path).columns
 
 
-def test_item_details_old_files_without_detail_columns(archive):
-    # The conftest archive was written with null detail columns: no detail rows.
-    assert item_details(archive).empty
-
-
 def test_item_details_keep_newest_non_null(tmp_path):
-    store = Store(tmp_path)
-    t = TABLES["items"]
-    store.upsert(t, to_arrow(t, [_item(8170, T1, vendor=250, subclass="Leather")]))
-    store.upsert(t, to_arrow(t, [_item(8170, T2)]))  # newer tooltip row with nulls
-    d = item_details(tmp_path)
+    data = make_archive(tmp_path, [], {})
+    store = store_of(data)
+    old = item_row((8170, "Rugged Leather", "Trade Goods", "COMMON", "Leather", None, 250), T1)
+    store.write_day(ITEMS, T1.date(), pd.DataFrame([old]))
+    newer = item_row((8170, "Rugged Leather", "Trade Goods"), T2)  # details gone (nulls)
+    store.write_day(ITEMS, T2.date(), pd.DataFrame([newer]))
+    d = item_details(data)
     assert d["item_id"].tolist() == [8170]
     assert d["vendor_price"].tolist() == [250] and d["subclass"].tolist() == ["Leather"]
     assert d["required_level"].isna().all()
 
 
+def test_unknown_items_have_no_details(tmp_path):
+    data = make_archive(tmp_path, [(5, None, None)], {})
+    assert item_details(data).empty
+
+
 def test_recipes_newest_fetch_wins(tmp_path):
-    store = Store(tmp_path)
-    t = TABLES["recipes"]
+    data = make_archive(tmp_path, [], {})
+    store = store_of(data)
+    from coppertrail.collector.store import RECIPES
+
     row = {
-        "spell_id": 19058,
-        "recipe_name": "Rugged Armor Kit",
+        "recipe_id": 19058,
+        "name": "Rugged Armor Kit",
         "profession": "Leatherworking",
-        "skill_required": 250,
-        "acquisition": "trainer",
-        "result_id": 15564,
-        "result_name": "Rugged Armor Kit",
-        "result_qty_min": 1,
-        "result_qty_max": 1,
+        "crafted_item_id": 15564,
+        "crafted_qty": 1.0,
         "reagent_id": 8170,
-        "reagent_name": "Rugged Leather",
-        "source": "api",
-        "run_id": "r",
     }
-    store.upsert(t, to_arrow(t, [row | {"reagent_qty": 4, "fetched_at": T1}]))
-    store.upsert(t, to_arrow(t, [row | {"reagent_qty": 5, "fetched_at": T2}]))
-    r = recipes(tmp_path)
+    store.write_day(RECIPES, T1.date(), pd.DataFrame([row | {"reagent_qty": 4, "fetched_at": T1}]))
+    store.write_day(RECIPES, T2.date(), pd.DataFrame([row | {"reagent_qty": 5, "fetched_at": T2}]))
+    r = recipes(data)
     assert len(r) == 1 and r["reagent_qty"].iloc[0] == 5
+    assert pd.isna(r["reagent_name"].iloc[0])  # no item details for the reagent
 
 
-def test_builds_in_range(tmp_path):
-    store = Store(tmp_path)
-    t = TABLES["builds"]
-    rows = [
+def test_context_builds_in_range(tmp_path):
+    b = [
         {
-            "build_id": n,
-            "version": f"1.60.{n}",
-            "stage": "",
-            "title": f"WoW Forever 1.60.{n} (build {n})",
-            "published_at": at,
-            "url": f"https://example.invalid/{n}",
-            "description": "",
-            "source": "api",
-            "run_id": "r",
-            "fetched_at": T2,
-        }
-        for n, at in ((1, datetime(2026, 11, 1, 12, tzinfo=UTC)), (2, T1))
+            "version": "1.60.1",
+            "build": 1,
+            "namespace": "static-1.60.1_1-forever-eu",
+            "first_seen": datetime(2026, 11, 1, 12, tzinfo=UTC),
+        },
+        {
+            "version": "1.60.2",
+            "build": 2,
+            "namespace": "static-1.60.2_2-forever-eu",
+            "first_seen": T1,
+        },
+        # the same namespace seen again later: the first sighting counts
+        {
+            "version": "1.60.2",
+            "build": 2,
+            "namespace": "static-1.60.2_2-forever-eu",
+            "first_seen": T2,
+        },
     ]
-    store.upsert(t, to_arrow(t, rows))
-    assert builds(tmp_path)["build_id"].tolist() == [1, 2]
-    assert builds(tmp_path, date(2026, 11, 10), date(2026, 11, 17))["build_id"].tolist() == [2]
-    ctx = Context(tmp_path, None, date(2026, 11, 10), date(2026, 11, 17))
+    data = make_archive(tmp_path, [], {}, builds=b)
+    assert builds(data)["build_id"].tolist() == [1, 2]
+    ctx = Context(data, None, date(2026, 11, 10), date(2026, 11, 17))
     assert ctx.builds["version"].tolist() == ["1.60.2"]
+    assert ctx.builds["published_at"].tolist() == [pd.Timestamp(T1)]
 
 
-def test_hourly_of_reads_outside_the_selection(archive):
+def test_hourly_of_and_latest_of_read_outside_the_selection(archive):
     ctx = Context(archive, [8170], date(2026, 11, 9), date(2026, 11, 16))
-    assert ctx.hourly.empty
+    assert set(ctx.hourly["item_id"]) == {8170}
     assert set(ctx.hourly_of([2318])["item_id"]) == {2318}
-    assert set(ctx.snapshot_of([2318, 8170])["item_id"]) == {2318, 8170}
+    assert set(ctx.latest_of([2318, 8170])["item_id"]) == {2318, 8170}
+    assert ctx.latest["sales_per_day"].tolist() == [9_221.0]
     everything = Context(archive, None, date(2026, 11, 9), date(2026, 11, 16))
-    assert len(everything.hourly_of([2318])) == 8 * 24
+    assert len(everything.hourly_of([2318])) == 176
+    assert everything.house["units"].sum() > 0

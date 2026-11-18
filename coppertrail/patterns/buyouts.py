@@ -1,4 +1,4 @@
-"""Pattern 5: buyout and reset, quantity drops abruptly while min buyout jumps, per scan."""
+"""Pattern 5: buyout and reset, quantity drops abruptly while min buyout jumps, per snapshot."""
 
 from __future__ import annotations
 
@@ -8,9 +8,10 @@ import pandas as pd
 from coppertrail.patterns.base import Context, PatternResult, events_frame, pattern
 from coppertrail.patterns.common import by_hour, duration, finish_ranked, minutes, pct
 
-QTY_DROP = 0.40  # quantity down at least 40 % from the previous scan
+QTY_DROP = 0.40  # quantity down at least 40 % from the previous snapshot
 MIN_JUMP = 0.20  # and min buyout up at least 20 %
-MAX_GAP = pd.Timedelta(minutes=60)  # scans further apart are not compared
+# One snapshot an hour, a few seconds early or late; across a missed one (2 h) no compare.
+MAX_GAP = pd.Timedelta(minutes=90)
 MIN_PREV_QTY = 10  # tiny markets flip on one auction
 RESET_BAND = 0.10  # reset: min back within 10 % of the pre-buyout min
 
@@ -52,7 +53,7 @@ def find(scans: pd.DataFrame) -> pd.DataFrame:
             & (q <= pq * (1 - QTY_DROP))
             & (m >= pm * (1 + MIN_JUMP))
         )
-        flag = flag & ~flag.shift(fill_value=False)  # a buyout over several scans counts once
+        flag = flag & ~flag.shift(fill_value=False)  # a buyout over several snapshots counts once
         for i in np.flatnonzero(flag.to_numpy()):
             before = pm.iloc[i]
             later = np.flatnonzero((m.iloc[i + 1 :] <= before * (1 + RESET_BAND)).to_numpy())
@@ -82,17 +83,17 @@ def find(scans: pd.DataFrame) -> pd.DataFrame:
     number=5,
     title="Buyout and reset",
     min_days=1,
-    data=("scans", "snapshot", "items"),
+    data=("hourly", "latest", "items"),
     method=(
-        "Scan to scan (at most 60 min apart, previous quantity at least 10): quantity "
+        "Snapshot to snapshot (at most 90 min apart, previous quantity at least 10): quantity "
         "down 40 % or more while min buyout rises 20 % or more. Reset = first later "
-        "scan with min back within 10 % of the pre-buyout min."
+        "snapshot with min back within 10 % of the pre-buyout min."
     ),
 )
 def buyouts(ctx: Context) -> PatternResult:
-    s = ctx.scans
+    s = ctx.hourly
     if s.empty:
-        return PatternResult(events=events_frame(), note="No scan data in the range.")
+        return PatternResult(events=events_frame(), note="No hourly data in the range.")
     ev = find(s)
     events = events_frame(
         {

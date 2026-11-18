@@ -2,7 +2,7 @@ from datetime import date
 
 import numpy as np
 import pandas as pd
-from pattern_fixtures import hourly_frame, items_frame, make_ctx, noise, snapshot_frame
+from pattern_fixtures import hourly_frame, items_frame, latest_frame, make_ctx, noise
 
 import coppertrail.patterns.builds  # noqa: F401  (registers the job)
 from coppertrail.patterns.base import run
@@ -50,7 +50,7 @@ def _ctx(h, builds):
     return make_ctx(
         hourly=h,
         items=items_frame(ITEMS),
-        snapshot=snapshot_frame({i: 50.0 for i, _, _ in ITEMS}),
+        latest=latest_frame({i: 50.0 for i, _, _ in ITEMS}),
         builds=builds,
         start=date(2026, 11, 9),
         end=date(2026, 11, 16),

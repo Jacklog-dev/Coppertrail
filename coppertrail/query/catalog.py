@@ -5,10 +5,13 @@ from __future__ import annotations
 import os
 import sys
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
-from coppertrail.collector.legacy.store import TABLES, Store
+import pyarrow.parquet as pq
+
+from coppertrail.collector.store import HOURLY
+from coppertrail.query import series
 
 DEFAULT_DATA_DIR = Path("private")
 
@@ -33,19 +36,38 @@ class Item:
     name: str
     item_class: str
     quality: str
-    min_buyout: int | None  # copper, from the latest snapshot
-    sales_per_day: float  # 0.0 when the item has no snapshot row
+    min_buyout: int | None  # copper, from the newest hour
+    sales_per_day: float  # 0.0 when the item has no sales estimate
+
+
+STALE_AFTER = timedelta(hours=3)  # one snapshot an hour; three missed ones make it stale
+MISSING_WINDOW_H = 7 * 24
 
 
 @dataclass(frozen=True)
 class ArchiveStatus:
-    as_of: datetime | None  # newest price scan in the archive (UTC)
-    first_day: date | None  # first day with hourly data
-    last_day: date | None  # last day with hourly data
+    first_hour: datetime | None  # first snapshot hour in `hourly/` (UTC)
+    last_hour: datetime | None  # newest snapshot hour (UTC)
+    hours: int = 0  # snapshot hours stored
+    missing_hours_7d: int = 0  # hours without a snapshot in the 7 days up to last_hour
+    stale: bool = False  # last_hour older than 3 h when the status was read
+    as_of: datetime | None = None  # the newest snapshot's observed_at (else last_hour)
+
+    def __post_init__(self):
+        if self.as_of is None and self.last_hour is not None:
+            object.__setattr__(self, "as_of", self.last_hour)
 
     @property
     def empty(self) -> bool:
-        return self.as_of is None
+        return self.last_hour is None
+
+    @property
+    def first_day(self) -> date | None:
+        return None if self.first_hour is None else self.first_hour.date()
+
+    @property
+    def last_day(self) -> date | None:
+        return None if self.last_hour is None else self.last_hour.date()
 
     @property
     def days(self) -> int:
@@ -60,69 +82,60 @@ class ArchiveStatus:
         return (now - self.as_of).total_seconds() / 86_400
 
 
-def _utc(epoch: float | None) -> datetime | None:
-    return None if epoch is None else datetime.fromtimestamp(epoch, UTC)
-
-
 def load_items(data_dir: Path) -> list[Item]:
-    """Every named item, with lowest buyout and sales/day from its latest snapshot row."""
-    store = Store(data_dir)
-    if not store.day_files(TABLES["items"]):
+    """Every known item (details or selection), with lowest buyout and sales/day from
+    the newest hour. Items Blizzard has no name for show as `#<id>`."""
+    it = series.items(data_dir)
+    if it.empty:
         return []
-    if store.day_files(TABLES["snapshot"]):
-        sql = """
-            WITH latest AS (
-                SELECT item_id, min_buyout, sales_per_day,
-                       row_number() OVER (PARTITION BY item_id ORDER BY scanned_at DESC) AS rn
-                FROM {snapshot}
-            ), names AS (
-                SELECT item_id, name, item_class, quality,
-                       row_number() OVER (PARTITION BY item_id ORDER BY fetched_at DESC) AS rn
-                FROM {items}
+    latest = series.latest_per_item(data_dir).set_index("item_id")
+    out = []
+    for r in it.itertuples(index=False):
+        mb = latest["min_buyout"].get(r.item_id) if len(latest) else None
+        spd = latest["sales_per_day"].get(r.item_id) if len(latest) else None
+        out.append(
+            Item(
+                item_id=int(r.item_id),
+                name=r.name,
+                item_class=r.item_class if isinstance(r.item_class, str) else "",
+                quality=r.quality if isinstance(r.quality, str) else "",
+                min_buyout=None if mb is None or mb != mb else int(mb),
+                sales_per_day=0.0 if spd is None or spd != spd else float(spd),
             )
-            SELECT n.item_id, n.name, n.item_class, n.quality, l.min_buyout, l.sales_per_day
-            FROM names n LEFT JOIN latest l ON l.item_id = n.item_id AND l.rn = 1
-            WHERE n.rn = 1 AND n.name IS NOT NULL
-            ORDER BY n.name
-        """
-        tbl = store.query(sql, items="items", snapshot="snapshot")
-    else:
-        sql = """
-            SELECT item_id, name, item_class, quality, NULL AS min_buyout, NULL AS sales_per_day
-            FROM (SELECT *, row_number() OVER (PARTITION BY item_id ORDER BY fetched_at DESC) rn
-                  FROM {items}) WHERE rn = 1 AND name IS NOT NULL ORDER BY name
-        """
-        tbl = store.query(sql, items="items")
-    if tbl is None:
-        return []
-    return [
-        Item(
-            item_id=int(r["item_id"]),
-            name=r["name"],
-            item_class=r["item_class"] or "",
-            quality=r["quality"] or "",
-            min_buyout=None if r["min_buyout"] is None else int(r["min_buyout"]),
-            sales_per_day=float(r["sales_per_day"] or 0.0),
         )
-        for r in tbl.to_pylist()
-    ]
+    return sorted(out, key=lambda i: (i.name.casefold(), i.item_id))
 
 
-def archive_status(data_dir: Path) -> ArchiveStatus:
-    store = Store(data_dir)
-    as_of = first = last = None
-    # epoch() keeps DuckDB from converting TIMESTAMPTZ values in Python (needs pytz).
-    if store.day_files(TABLES["snapshot"]):
-        tbl = store.query("SELECT max(epoch(scanned_at)) AS t FROM {s}", s="snapshot")
-        as_of = _utc(tbl.column("t")[0].as_py()) if tbl is not None else None
-    if store.day_files(TABLES["hourly"]):
-        tbl = store.query(
-            "SELECT min(epoch(hour)) AS a, max(epoch(hour)) AS b FROM {h}", h="hourly"
-        )
-        if tbl is not None:
-            a, b = tbl.column("a")[0].as_py(), tbl.column("b")[0].as_py()
-            first = _utc(a).date() if a is not None else None
-            last = _utc(b).date() if b is not None else None
-            if as_of is None and b is not None:
-                as_of = _utc(b)
-    return ArchiveStatus(as_of=as_of, first_day=first, last_day=last)
+def _hour_of(path: Path) -> datetime | None:
+    try:
+        day = date.fromisoformat(path.parent.name)
+        return datetime(day.year, day.month, day.day, int(path.stem), tzinfo=UTC)
+    except ValueError:
+        return None
+
+
+def archive_status(data_dir: Path, now: datetime | None = None) -> ArchiveStatus:
+    """From the hour file names (one per snapshot); only the newest file is opened."""
+    files = series.store_of(data_dir).files(HOURLY)
+    hours = sorted({h for h in map(_hour_of, files) if h is not None})
+    if not hours:
+        return ArchiveStatus(None, None)
+    first, last = hours[0], hours[-1]
+    since = last - timedelta(hours=MISSING_WINDOW_H - 1)
+    expected = int((last - max(first, since)) / timedelta(hours=1)) + 1
+    have = sum(1 for h in hours if h >= since)
+    as_of = None
+    try:
+        col = pq.read_table(files[-1], columns=["observed_at"]).column(0)
+        as_of = max((v.as_py() for v in col if v.is_valid), default=None)
+    except (OSError, ValueError):
+        pass
+    now = now or datetime.now(UTC)
+    return ArchiveStatus(
+        first_hour=first,
+        last_hour=last,
+        hours=len(hours),
+        missing_hours_7d=expected - have,
+        stale=now - last > STALE_AFTER,
+        as_of=as_of,
+    )

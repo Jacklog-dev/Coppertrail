@@ -103,7 +103,7 @@ def _empty(note: str, checked: int = 0) -> PatternResult:
     number=9,
     title="Correlated items",
     min_days=21,
-    data=("hourly", "snapshot", "items"),
+    data=("hourly", "latest", "items"),
     method=(
         "Daily price = CET-day median of hourly min. Items priced on 80 % of the days or "
         "more, top 200 by turnover (sales/day x min buyout). Residual return = daily log "
@@ -121,13 +121,13 @@ def correlations(ctx: Context) -> PatternResult:
     coverage = wide.notna().mean()
     sparse = int((coverage < MIN_COVERAGE).sum())
     wide = wide.loc[:, coverage >= MIN_COVERAGE]
-    snap = ctx.snapshot
+    snap = ctx.latest
     turnover = (
         (snap["sales_per_day"].astype(float) * snap["min_buyout"].astype(float))
         .groupby(snap["item_id"])
         .max()
     )
-    # Items without a snapshot rank last.
+    # Items without a latest row rank last.
     t = turnover.reindex(wide.columns).fillna(-np.inf)
     wide = wide[sorted(t.sort_values(ascending=False, kind="stable").index[:MAX_ITEMS])]
     ids = np.asarray(wide.columns, dtype="int64")

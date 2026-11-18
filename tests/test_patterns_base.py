@@ -46,7 +46,7 @@ def test_run_fills_basis(archive, registry):
         date(2026, 11, 16),
         8,
     )
-    assert res.ranked["rows"].tolist() == [192]
+    assert res.ranked["rows"].tolist() == [176]  # 9 Nov 00:00 to 16 Nov 07:00
     assert res.method == "Counts hourly rows. (test)"
     assert res.basis_line().startswith("Rests on 8 days of data (2026-11-09 to 2026-11-16)")
 
@@ -97,5 +97,5 @@ def test_cli_list_and_run(archive, registry, capsys):
     assert "count" in capsys.readouterr().out
     assert main(["--data-dir", str(archive), "run", "count"]) == 0
     out = capsys.readouterr().out
-    assert "Rests on 8 days" in out and "192" in out
+    assert "Rests on 8 days" in out and "176" in out
     assert main(["--data-dir", str(archive), "run", "nope"]) == 2

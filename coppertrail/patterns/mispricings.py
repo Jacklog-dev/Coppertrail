@@ -1,4 +1,7 @@
-"""Pattern 3: mispricings (snipes), min buyout far below a rolling p25, per scan."""
+"""Pattern 3: mispricings (snipes), min buyout far below a rolling p25, per snapshot.
+
+One snapshot an hour (`hourly.observed_at`); the column `scans` counts snapshots.
+"""
 
 from __future__ import annotations
 
@@ -9,9 +12,10 @@ from coppertrail.patterns.base import Context, PatternResult, events_frame, patt
 from coppertrail.patterns.common import by_hour, duration, finish_ranked, minutes, pct, runs
 
 THRESHOLD = 0.30  # min buyout at least 30 % below the reference
-REF_WINDOW = "6h"  # reference: median of p25 over the prior 6 h of scans
-REF_MIN_SCANS = 6
-MAX_GAP = pd.Timedelta(minutes=60)  # a later scan further away says nothing about the fix
+REF_WINDOW = "6h"  # reference: median of p25 over the prior 6 h of snapshots
+REF_MIN_SCANS = 5  # 5 or 6 hourly snapshots fall in 6 h, by a few seconds of timing
+# One snapshot an hour, a few seconds early or late; a missed one (2 h) breaks the chain.
+MAX_GAP = pd.Timedelta(minutes=90)
 
 HIT_EVENTS = 2  # a hit repeats: at least two mispricings that corrected
 
@@ -85,17 +89,17 @@ def find(scans: pd.DataFrame, threshold: float = THRESHOLD) -> pd.DataFrame:
     number=3,
     title="Mispricings",
     min_days=1,
-    data=("scans", "snapshot", "items"),
+    data=("hourly", "latest", "items"),
     method=(
-        "Per scan: min buyout at least 30 % below the median p25 of the prior 6 h "
-        "(6 scans at least). Consecutive scans below that line are one event; it "
-        "corrects at the first later scan back above the line."
+        "Per hourly snapshot: min buyout at least 30 % below the median p25 of the prior "
+        "6 h (5 snapshots at least). Consecutive snapshots below that line are one event; "
+        "it corrects at the next snapshot back above the line (at most 90 min later)."
     ),
 )
 def mispricings(ctx: Context) -> PatternResult:
-    s = ctx.scans
+    s = ctx.hourly
     if s.empty:
-        return PatternResult(events=events_frame(), note="No scan data in the range.")
+        return PatternResult(events=events_frame(), note="No hourly data in the range.")
     ev = find(s)
     checked = int(s["item_id"].nunique())
     events = events_frame(

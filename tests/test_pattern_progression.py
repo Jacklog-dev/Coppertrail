@@ -2,7 +2,7 @@ from datetime import date
 
 import numpy as np
 import pandas as pd
-from pattern_fixtures import hourly_frame, items_frame, make_ctx, noise, snapshot_frame
+from pattern_fixtures import hourly_frame, items_frame, latest_frame, make_ctx, noise
 
 from coppertrail.patterns.progression import band_of, progression_wave, turning_point
 
@@ -37,7 +37,7 @@ def _ctx(frames, levels):
     return make_ctx(
         hourly=pd.concat(frames, ignore_index=True),
         items=items_frame([(i, f"Item {i}", lv) for i, lv in levels.items()]),
-        snapshot=snapshot_frame({i: 10.0 for i in levels}),
+        latest=latest_frame({i: 10.0 for i in levels}),
     )
 
 

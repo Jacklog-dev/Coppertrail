@@ -2,7 +2,7 @@ from datetime import date
 
 import numpy as np
 import pandas as pd
-from pattern_fixtures import hourly_frame, items_frame, make_ctx, noise, snapshot_frame
+from pattern_fixtures import hourly_frame, items_frame, latest_frame, make_ctx, noise
 
 import coppertrail.patterns.reversion  # noqa: F401  (registers the job)
 from coppertrail.patterns.base import run
@@ -26,7 +26,7 @@ def _ctx(series, **kw):
     return make_ctx(
         hourly=hourly,
         items=items_frame(ITEMS),
-        snapshot=snapshot_frame(dict.fromkeys(series, 50.0)),
+        latest=latest_frame(dict.fromkeys(series, 50.0)),
         **kw,
     )
 

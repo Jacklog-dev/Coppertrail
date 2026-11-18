@@ -2,7 +2,7 @@ from datetime import date
 
 import numpy as np
 import pandas as pd
-from pattern_fixtures import hourly_frame, items_frame, make_ctx, noise, snapshot_frame
+from pattern_fixtures import hourly_frame, items_frame, latest_frame, make_ctx, noise
 
 from coppertrail.patterns.inflation import classify, inflation
 
@@ -24,18 +24,16 @@ def _series(item_id, daily):
     return hourly_frame(item_id, START, {"min": 1000 * daily**day * noise(N, item_id, 0.01)})
 
 
-def _economy():
-    days = pd.date_range("2026-11-09", periods=DAYS).date
+def _house():
+    """One house row per snapshot; gold listed 1,000 g on CET day one, +1,000 g a day."""
+    hours = pd.date_range(START, periods=N, freq="h", tz="UTC")
     return pd.DataFrame(
         {
-            "day": days,
-            "kind": "daily",
-            "value": [10_000_000 * (i + 1) for i in range(DAYS)],
-            "value_low": np.nan,
+            "hour": hours,
+            "observed_at": hours + pd.Timedelta(minutes=22),
             "auctions": 1000,
             "units": 5000,
-            "scans": 100,
-            "source": "api",
+            "gold_listed": [10_000_000 * (i // 24 + 1) for i in range(N)],
         }
     )
 
@@ -44,8 +42,8 @@ def _ctx(drifts):
     return make_ctx(
         hourly=pd.concat([_series(i, drifts[i]) for i, _, _ in ITEMS], ignore_index=True),
         items=items_frame(ITEMS),
-        snapshot=snapshot_frame({i: 100.0 for i, _, _ in ITEMS}),
-        economy=_economy(),
+        latest=latest_frame({i: 100.0 for i, _, _ in ITEMS}),
+        house=_house(),
     )
 
 

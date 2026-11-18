@@ -133,7 +133,7 @@ def find(h: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     number=4,
     title="Supply shocks",
     min_days=3,
-    data=("hourly", "snapshot", "items"),
+    data=("hourly", "latest", "items"),
     method=(
         "Hourly quantity at least double its baseline (the prior 24 h median, but at "
         "least the same hours yesterday) for 2 h or more, baseline 20 units at least; "

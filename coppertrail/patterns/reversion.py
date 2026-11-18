@@ -129,7 +129,7 @@ def _empty(note: str, checked: int = 0) -> PatternResult:
     number=6,
     title="Mean reversion",
     min_days=21,
-    data=("hourly", "snapshot", "items"),
+    data=("hourly", "latest", "items"),
     method=(
         "Daily price = CET-day median of hourly min. Signal: price at least 15 % below the "
         "mean of the previous 7 calendar days (5 priced at least). Recovered: a price in the "

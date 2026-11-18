@@ -28,7 +28,7 @@ from coppertrail.query.catalog import archive_status
 EVENT_COLS = ["item_id", "at", "type", "detail", "magnitude"]
 EVENT_TYPES = ("mispricing", "supply_shock", "buyout")
 
-DATA_KINDS = ("hourly", "scans", "snapshot", "economy", "items", "recipes", "builds")
+DATA_KINDS = ("hourly", "latest", "house", "items", "recipes", "builds")
 
 
 def events_frame(rows: Iterable[dict] | None = None) -> pd.DataFrame:
@@ -53,20 +53,19 @@ class Context:
 
     @cached_property
     def hourly(self) -> pd.DataFrame:
+        """One row per selected item and snapshot (`observed_at`) in the range."""
         return series.hourly(self.data_dir, self.item_ids, self.start, self.end)
 
     @cached_property
-    def scans(self) -> pd.DataFrame:
-        return series.scans(self.data_dir, self.item_ids, self.start, self.end)
+    def latest(self) -> pd.DataFrame:
+        """`series.latest_per_item` per selected item (not limited to the date range):
+        newest median and lowest buyout, 7/30-day medians, sales/day."""
+        return series.latest_per_item(self.data_dir, self.item_ids)
 
     @cached_property
-    def snapshot(self) -> pd.DataFrame:
-        """Latest snapshot row per selected item (not limited to the date range)."""
-        return series.latest_snapshot(self.data_dir, self.item_ids)
-
-    @cached_property
-    def economy(self) -> pd.DataFrame:
-        return series.economy(self.data_dir, self.start, self.end)
+    def house(self) -> pd.DataFrame:
+        """One row per snapshot for the whole house in the range."""
+        return series.house(self.data_dir, self.start, self.end)
 
     @cached_property
     def items(self) -> pd.DataFrame:
@@ -103,12 +102,12 @@ class Context:
             return self.hourly[self.hourly["item_id"].isin(ids)].reset_index(drop=True)
         return series.hourly(self.data_dir, ids, self.start, self.end)
 
-    def snapshot_of(self, item_ids: Iterable[int]) -> pd.DataFrame:
-        """Latest snapshot row for these items, even outside the selection."""
+    def latest_of(self, item_ids: Iterable[int]) -> pd.DataFrame:
+        """`latest` rows for these items, even outside the selection."""
         ids = sorted({int(i) for i in item_ids})
         if self.item_ids is None:
-            return self.snapshot[self.snapshot["item_id"].isin(ids)].reset_index(drop=True)
-        return series.latest_snapshot(self.data_dir, ids)
+            return self.latest[self.latest["item_id"].isin(ids)].reset_index(drop=True)
+        return series.latest_per_item(self.data_dir, ids)
 
     @cached_property
     def span(self) -> tuple[date | None, date | None]:

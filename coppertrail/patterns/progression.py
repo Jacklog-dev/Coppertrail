@@ -85,7 +85,7 @@ def _relative(d: pd.DataFrame) -> pd.DataFrame:
     number=8,
     title="Progression wave",
     min_days=3,
-    data=("hourly", "items", "snapshot"),
+    data=("hourly", "items", "latest"),
     method=(
         "CET days with at least 12 hourly rows; per item the daily mean min and quantity, "
         "per level band the median over items of value / first day x 100. Turning point: "

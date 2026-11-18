@@ -3,10 +3,10 @@ import pandas as pd
 from pattern_fixtures import (
     hourly_frame,
     items_frame,
+    latest_frame,
     local_hours,
     make_ctx,
     noise,
-    snapshot_frame,
 )
 
 from coppertrail.patterns import rhythm as R
@@ -20,7 +20,7 @@ def _ctx(frames, ids):
     return make_ctx(
         hourly=pd.concat(frames, ignore_index=True),
         items=items_frame([(i, f"Item {i}", 30) for i in ids]),
-        snapshot=snapshot_frame({i: 100.0 for i in ids}),
+        latest=latest_frame({i: 100.0 for i in ids}),
     )
 
 

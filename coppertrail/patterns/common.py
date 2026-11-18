@@ -16,8 +16,8 @@ def names(ctx: Context) -> pd.DataFrame:
 
 
 def sales_per_day(ctx: Context) -> pd.Series:
-    """Latest sales/day per item from the snapshot (index item_id)."""
-    snap = ctx.snapshot
+    """Latest sales/day per item from `ctx.latest` (index item_id)."""
+    snap = ctx.latest
     if snap.empty:
         return pd.Series(dtype="float64", name="sales_per_day")
     return snap.set_index("item_id")["sales_per_day"].astype("float64")

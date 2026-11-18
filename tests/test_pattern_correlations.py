@@ -2,7 +2,7 @@ from datetime import date
 
 import numpy as np
 import pandas as pd
-from pattern_fixtures import hourly_frame, items_frame, make_ctx, snapshot_frame
+from pattern_fixtures import hourly_frame, items_frame, latest_frame, make_ctx
 
 import coppertrail.patterns.correlations  # noqa: F401  (registers the job)
 from coppertrail.patterns.base import run
@@ -29,7 +29,7 @@ def _ctx(shocks: dict[int, np.ndarray], start=date(2026, 11, 1), end=date(2026, 
     return make_ctx(
         hourly=pd.concat([_hourly(i, s) for i, s in shocks.items()], ignore_index=True),
         items=items_frame([(i, f"Item {i}", 30) for i in ids]),
-        snapshot=snapshot_frame({i: 10.0 * (k + 1) for k, i in enumerate(ids)}),
+        latest=latest_frame({i: 10.0 * (k + 1) for k, i in enumerate(ids)}),
         start=start,
         end=end,
     )

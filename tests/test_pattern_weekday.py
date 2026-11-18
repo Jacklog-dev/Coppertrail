@@ -2,7 +2,7 @@ from datetime import date, timedelta
 
 import numpy as np
 import pandas as pd
-from pattern_fixtures import hourly_frame, items_frame, make_ctx, noise, snapshot_frame
+from pattern_fixtures import hourly_frame, items_frame, latest_frame, make_ctx, noise
 
 import coppertrail.patterns.weekday  # noqa: F401  (registers the job)
 from coppertrail.patterns.base import run
@@ -36,7 +36,7 @@ def _ctx(frames, ids, **kw):
     return make_ctx(
         hourly=pd.concat(frames, ignore_index=True),
         items=items_frame([(i, f"Item {i}", 30) for i in ids]),
-        snapshot=snapshot_frame({i: 50.0 for i in ids}),
+        latest=latest_frame({i: 50.0 for i in ids}),
         **kw,
     )
 

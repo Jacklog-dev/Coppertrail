@@ -7,7 +7,7 @@ from pattern_fixtures import hourly_frame, items_frame, make_ctx, noise
 import coppertrail.patterns.spreads  # noqa: F401 - registers the job
 from coppertrail.patterns.base import run
 from coppertrail.patterns.spreads import KEY, WORTH, processing_spreads
-from coppertrail.query.series import RECIPE_COLS, SNAPSHOT_COLS
+from coppertrail.query.series import LATEST_COLS, RECIPE_COLS
 
 START = "2026-11-08 23:00"  # 00:00 CET on 9 Nov
 N = 5 * 24
@@ -77,18 +77,18 @@ def _flat(item_id, price):
     return hourly_frame(item_id, START, {"min": price * noise(N, item_id, 0.002)})
 
 
-def _snapshot(prices):
+def _latest(prices):
     return pd.DataFrame(
         [
             {
-                "scanned_at": pd.Timestamp("2026-11-13 12:00", tz="UTC"),
+                "observed_at": pd.Timestamp("2026-11-13 12:00", tz="UTC"),
                 "item_id": i,
                 "min_buyout": p,
                 "sales_per_day": 10.0,
             }
             for i, p in prices.items()
         ],
-        columns=SNAPSHOT_COLS,
+        columns=LATEST_COLS,
     )
 
 
@@ -99,7 +99,7 @@ def _ctx(prices, recipes=None, **kw):
     return make_ctx(
         hourly=pd.concat([_flat(i, p) for i, p in prices.items()], ignore_index=True),
         items=items_frame(ITEMS),
-        snapshot=_snapshot(prices),
+        latest=_latest(prices),
         recipes=_recipes() if recipes is None else recipes,
         **kw,
     )
@@ -141,10 +141,10 @@ def test_planted_leather_chain():
 
 def test_selection_picks_recipes_by_reagent_and_prices_outside_items():
     ctx = _ctx(PRICES)
-    h, snap = ctx.hourly, ctx.snapshot
+    h, snap = ctx.hourly, ctx.latest
     # With a selection set, Context reads outside items from disk; serve the presets.
     ctx.hourly_of = lambda ids: h[h["item_id"].isin(list(ids))].reset_index(drop=True)
-    ctx.snapshot_of = lambda ids: snap[snap["item_id"].isin(list(ids))].reset_index(drop=True)
+    ctx.latest_of = lambda ids: snap[snap["item_id"].isin(list(ids))].reset_index(drop=True)
     ctx.item_ids = [RUGGED]  # the kit itself is outside the selection
     res = processing_spreads(ctx)
     assert list(res.ranked["spell_id"]) == [19058]
@@ -193,7 +193,7 @@ def test_gate():
 
 def test_chain_by_product_and_history_first():
     # Leather gloves made from Rugged Leather: a reagent in the chain, the product not.
-    # The gloves have only a snapshot price (no hourly history) with a huge margin.
+    # The gloves have only a latest price (no hourly history in range), a huge margin.
     gloves = 7777
     rec = pd.concat(
         [
@@ -208,8 +208,8 @@ def test_chain_by_product_and_history_first():
         ignore_index=True,
     )
     ctx = _ctx(PRICES, recipes=rec)
-    extra = ctx.snapshot.iloc[[0]].assign(item_id=gloves, min_buyout=1_000_000, sales_per_day=0.0)
-    ctx.__dict__["snapshot"] = pd.concat([ctx.snapshot, extra], ignore_index=True)
+    extra = ctx.latest.iloc[[0]].assign(item_id=gloves, min_buyout=1_000_000, sales_per_day=0.0)
+    ctx.__dict__["latest"] = pd.concat([ctx.latest, extra], ignore_index=True)
     r = processing_spreads(ctx).ranked
     g = r[r["spell_id"] == 88].iloc[0]
     assert g["chain"] == "" and g["days_priced"] == 0
