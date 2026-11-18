@@ -1,4 +1,4 @@
-"""Master data copied from Blizzard: item details and recipes, kept on the window branch.
+"""Master data copied from Blizzard: item details and recipes, kept in window/ (not in git).
 
 Item details go to `blizzard/items/<day>.parquet` (the newest row per item wins across files);
 recipes to one `blizzard/recipes/<day>.parquet` per refresh, one row per reagent.

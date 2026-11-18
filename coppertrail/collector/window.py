@@ -1,15 +1,17 @@
-"""The 30-day window: prune copied Blizzard data and rebuild the window branch.
+"""The 30-day window: prune data copied from Blizzard.
 
-Blizzard's terms allow keeping copied API data for at most 30 days. The window branch
-holds only that data and is rebuilt every night as a single orphan commit, so older
-copies leave the branch's history when the workflow force-pushes it.
+Blizzard's terms allow keeping copied API data for at most 30 days. That data lives only
+in `<data>/window/` (never in git): the workflows download the newest `ARTIFACT`, run the
+collector, prune, and upload it again as a GitHub Actions artifact that GitHub deletes
+after `artifact_days`. So no stored copy is ever older than `copied_days`: rows are
+pruned at `copied_days - artifact_days` (`keep_days`), and the artifact holding them
+expires `artifact_days` later. The GUI's pull downloads the same artifact.
 """
 
 from __future__ import annotations
 
 import logging
 import shutil
-import subprocess
 from datetime import date
 from pathlib import Path
 
@@ -17,7 +19,12 @@ from .store import HOURLY, HOUSE, ITEMS, RECIPES, Store
 
 log = logging.getLogger(__name__)
 
-BRANCH = "window"
+ARTIFACT = "copied-data"  # the Actions artifact holding window/ (workflows, GUI pull)
+
+
+def keep_days(copied_days: int, artifact_days: int) -> int:
+    """How many days copied rows may stay in window/: the artifact adds `artifact_days`."""
+    return max(1, copied_days - artifact_days)
 
 
 def _young(day: date, today: date, days: int) -> bool:
@@ -76,28 +83,3 @@ def prune_summaries(store: Store, today: date, summary_retention_days: int) -> l
                 deleted.append(d)
     log.info("summaries: %d day folder(s) deleted", len(deleted))
     return deleted
-
-
-def _git(cwd: Path, *args: str) -> str:
-    r = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
-    if r.returncode != 0:
-        raise RuntimeError(f"git {args[0]} failed: {r.stderr.strip()}")
-    return r.stdout.strip()
-
-
-def rebuild_branch(window_dir: Path, message: str) -> str:
-    """Replace the checked-out window branch with one orphan commit of the current tree.
-    Returns the new commit's sha. Pushing is left to the workflow.
-
-    The commit is made with `commit-tree` (no parent) and `window` is pointed at it, so
-    there is no temporary branch for an interrupted run to leave behind."""
-    window_dir = Path(window_dir)
-    current = _git(window_dir, "symbolic-ref", "--short", "HEAD")
-    if current != BRANCH:
-        raise RuntimeError(f"{window_dir} is on branch {current!r}, not {BRANCH!r}")
-    _git(window_dir, "add", "-A")
-    tree = _git(window_dir, "write-tree")
-    sha = _git(window_dir, "commit-tree", tree, "-m", message)
-    _git(window_dir, "update-ref", f"refs/heads/{BRANCH}", sha)
-    log.info("window branch rebuilt as one commit")
-    return sha

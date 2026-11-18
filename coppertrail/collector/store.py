@@ -1,14 +1,15 @@
 """Parquet storage for the Blizzard collector.
 
-Two checkouts of the data repo:
-- `data_dir` (branch `main`): Coppertrail's own conclusions, kept for good.
+Two folders:
+- `data_dir` (the data repo's `main` checkout): Coppertrail's own conclusions, kept for good.
   `hourly/` and `house/` are one write-once file per snapshot
   (`<name>/<YYYY-MM-DD>/<HH>.parquet`); `selection/` and `builds/` are day files.
   Rows a source fed carry a `source` column (`blizzard`), the tables themselves are
   source-neutral, so another source can feed them later.
-- `window_dir` (branch `window`): data copied unchanged from a source, at most
-  `copied_days` old, as day files under the source's own folder
-  (`<source>/<name>/<YYYY-MM-DD>.parquet`, today `blizzard/items/`, `blizzard/recipes/`).
+- `window_dir` (`<data>/window/`, not in git; moved as a GitHub Actions artifact): data
+  copied unchanged from a source, at most `copied_days` old, as day files under the
+  source's own folder (`<source>/<name>/<YYYY-MM-DD>.parquet`, today `blizzard/items/`,
+  `blizzard/recipes/`).
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ TS = pa.timestamp("us", tz="UTC")
 @dataclass(frozen=True)
 class Table:
     name: str
-    branch: str  # "main" or "window"
+    branch: str  # "main" (data_dir, in git) or "window" (window_dir, not in git)
     layout: str  # "hour" or "day"
     schema: pa.Schema
     required: frozenset[str]

@@ -3,8 +3,9 @@
 1. Rebuild the item selection from the latest full listings (the hourly run's state).
 2. Refresh stale item details (at most `MAX_ITEMS_PER_NIGHT`).
 3. Refresh the recipes on Mondays, or when there are none yet.
-4. Apply the summary retention, prune the window to `copied_days`.
-5. Rebuild the window branch as a single commit. The workflow force-pushes it.
+4. Apply the summary retention, prune window/ (`window.keep_days`).
+
+The workflow uploads window/ as the copied-data artifact and commits main.
 
 The CLI holds the run lock; this module never locks.
 """
@@ -21,7 +22,7 @@ from .blizzard import BlizzardClient
 from .config import Config
 from .master import known_items, refresh_items, refresh_recipes, stale_items
 from .store import HOURLY, RECIPES, SELECTION, Store
-from .window import prune_summaries, prune_window, rebuild_branch
+from .window import keep_days, prune_summaries, prune_window
 
 log = logging.getLogger(__name__)
 
@@ -97,8 +98,8 @@ def main(
         if t.weekday() == 0 or not store.files(RECIPES):
             refresh_recipes(client, store, t)
         prune_summaries(store, today, cfg.retention.summary_retention_days)
-        prune_window(store, today, cfg.retention.copied_days)
-        rebuild_branch(cfg.window_dir, f"window {today.isoformat()}")
+        r = cfg.retention
+        prune_window(store, today, keep_days(r.copied_days, r.artifact_days))
     except Exception:
         log.exception("nightly run failed")
         return 1

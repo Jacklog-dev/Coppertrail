@@ -224,3 +224,15 @@ def test_build_row_written_once_per_namespace(tmp_path, lookups):
     assert set(rows["source"]) == {"blizzard"}
     assert rows[["version", "build"]].values.tolist() == [["1.60.1", 70399], ["1.60.2", 70500]]
     assert rows["first_seen"].tolist() == [pd.Timestamp(T0), pd.Timestamp(house.at)]
+
+
+def test_hourly_prunes_copied_data(tmp_path, lookups):
+    """Every hourly upload is within the limit, even when nightly runs fail."""
+    s = store_of(tmp_path)
+    old = T0 - timedelta(days=29)  # at keep_days(30, 1) = 29: too old once the run prunes
+    s.write_day(
+        ITEMS, old.date(), pd.DataFrame([{"item_id": 99, "found": True, "fetched_at": old}])
+    )
+    assert run(tmp_path, House()) == 0
+    assert s.files(ITEMS) == [s.path(ITEMS, T0.date())]
+    assert 99 not in set(pd.read_parquet(s.path(ITEMS, T0.date()))["item_id"])

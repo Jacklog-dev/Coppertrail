@@ -28,9 +28,10 @@ uv run python -m coppertrail.ui --data-dir path/to/your/private/data
 - Filters for item groups (editable), class, name, date range and minimum sales
   per day apply to every view and are remembered.
 
-The only network action in the app is "Pull latest data". It fast-forwards your
-data folder (`git pull --ff-only`) and resets the `window/` checkout inside it to
-the latest copied data, which is rewritten daily.
+The only network action in the app is "Pull latest data". It downloads the latest
+copied item data (with the [GitHub CLI](https://cli.github.com/), signed in with
+`gh auth login`) into the `window/` folder and fast-forwards your data folder
+(`git pull --ff-only`). How the pieces fit together: [docs/architecture.md](docs/architecture.md).
 
 ### Pattern jobs from the command line
 
@@ -69,8 +70,8 @@ Coppertrail settings folder (`%APPDATA%\Coppertrail`, or `~/.config/coppertrail`
 - `hourly` fetches the latest snapshot and writes one file of hourly conclusions
   per snapshot (prices per item, listed quantity, estimated sales). It is safe to
   rerun: an hour that is already stored is never written twice.
-- `nightly` rebuilds the item selection, refreshes item details and recipes, and
-  keeps the copied data to the last 30 days.
+- `nightly` rebuilds the item selection and refreshes item details and recipes.
+- Both prune the copied data in `window/`, so nothing in it is older than 30 days.
 
 ## Data and privacy
 
@@ -85,9 +86,9 @@ Coppertrail settings folder (`%APPDATA%\Coppertrail`, or `~/.config/coppertrail`
   (prices, quantities, sales estimates per item and hour) are kept longer.
 - Nothing is collected about users: no accounts, no telemetry, no tracking. The app
   makes no network request except "Pull latest data", and only when you click it.
-- The copied data lives on a git branch that is rewritten every day. GitHub may
-  keep unreachable git objects for a while after such a rewrite; that is outside
-  Coppertrail's control.
+- The copied data is never stored in git. It moves between collector runs as a
+  short-lived GitHub Actions artifact that GitHub deletes after a day, and the
+  app deletes local copies older than 30 days at every start and pull.
 
 ## License
 

@@ -3,9 +3,10 @@
 Steps: check the house name; fetch both listing endpoints newer than the last stored
 snapshot (polling for up to 5 minutes); look up unknown items; pick the selection;
 summarise, compare with the previous listings and write `hourly/` and `house/`; save the
-listings for the next run; record a new static namespace in `builds/`.
+listings for the next run; record a new static namespace in `builds/`; prune window/,
+so every uploaded artifact is within the 30-day limit even when a nightly run fails.
 
-The CLI holds the run lock, and the workflow commits; this module touches neither.
+The CLI holds the run lock, and the workflow commits and uploads; this module does neither.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from .sales import auction_changes, compare, load_state, save_state, sold_value
 from .selection import build_selection, current_selection
 from .store import BUILDS, HOURLY, HOUSE, ITEMS, SELECTION, Store
 from .summarise import house_totals, summarise
+from .window import keep_days, prune_window
 
 log = logging.getLogger(__name__)
 
@@ -219,4 +221,6 @@ def _run(cfg: Config, client: BlizzardClient, now, sleep) -> int:
 
     save_state(state_path, frame, at, cfg.blizzard.house)
     _record_build(client, store, at)
+    r = cfg.retention
+    prune_window(store, now().date(), keep_days(r.copied_days, r.artifact_days))
     return EXIT_OK

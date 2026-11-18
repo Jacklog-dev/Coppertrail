@@ -2,8 +2,6 @@
 fakes that follow the plan's interfaces, so these tests pin nightly's own wiring."""
 
 import importlib
-import shutil
-import subprocess
 import sys
 import types
 from datetime import UTC, datetime, timedelta
@@ -20,13 +18,6 @@ from coppertrail.collector.store import HOURLY, ITEMS, RECIPES, SELECTION, Store
 
 TUESDAY = datetime(2026, 11, 17, 0, 50, tzinfo=UTC)
 MONDAY = datetime(2026, 11, 16, 0, 50, tzinfo=UTC)
-
-pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
-
-
-def git(repo, *args):
-    out = subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True)
-    return out.stdout.strip()
 
 
 @pytest.fixture
@@ -77,12 +68,7 @@ def data(tmp_path):
     d = tmp_path / "data"
     w = d / "window"
     w.mkdir(parents=True)
-    git(w, "init", "-q", "-b", "window")
-    git(w, "config", "user.email", "test@example.invalid")
-    git(w, "config", "user.name", "test")
-    (w / "old.txt").write_text("yesterday")
-    git(w, "add", "-A")
-    git(w, "commit", "-q", "-m", "window yesterday")
+    (w / "old.txt").write_text("yesterday")  # not ours: pruning leaves it alone
     return d
 
 
@@ -138,7 +124,7 @@ def hourly_row(item_id, at, median, gone, partial):
     }
 
 
-def test_nightly_writes_selection_and_rebuilds(data, wp1):
+def test_nightly_writes_selection_and_prunes(data, wp1):
     cfg = load_config(data)
     s = Store(cfg.data_dir, cfg.window_dir)
     wp1["state"] = (state_frame(), TUESDAY - timedelta(minutes=28))
@@ -173,10 +159,8 @@ def test_nightly_writes_selection_and_rebuilds(data, wp1):
     assert items["quality"].tolist() == ["RARE"]
     assert s.files(ITEMS) == [s.path(ITEMS, TUESDAY.date())]
     assert s.files(RECIPES) == [s.path(RECIPES, old.date())]
-    w = cfg.window_dir
-    assert git(w, "rev-list", "--count", "HEAD") == "1"
-    assert git(w, "log", "-1", "--format=%s") == "window 2026-11-17"
-    assert "old.txt" in git(w, "ls-files")  # untracked by us, but still in the checkout
+    assert (cfg.window_dir / "old.txt").read_text() == "yesterday"
+    assert not (cfg.window_dir / ".git").exists()  # window/ is a plain folder, never a repo
 
 
 def test_nightly_without_state_skips_selection(data, wp1):
@@ -187,7 +171,6 @@ def test_nightly_without_state_skips_selection(data, wp1):
         assert nightly.main(cfg, client=c, now=lambda: TUESDAY) == 0
     assert s.files(SELECTION) == []
     assert wp1["build_args"] is None
-    assert git(cfg.window_dir, "log", "-1", "--format=%s") == "window 2026-11-17"
 
 
 @pytest.mark.parametrize(

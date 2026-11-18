@@ -36,7 +36,16 @@ from coppertrail.ui import format as fmt
 from coppertrail.ui import movers as mv
 from coppertrail.ui import patternview as pv
 from coppertrail.ui import viewdata as vd
-from coppertrail.ui.pull import COMMAND, NO_GIT, NOT_A_CLONE, PullResult, can_pull, run_pull
+from coppertrail.ui.pull import (
+    COMMAND,
+    DOWNLOAD_FAILED,
+    NO_GH,
+    NO_GIT,
+    NOT_A_CLONE,
+    PullResult,
+    can_pull,
+    run_pull,
+)
 from coppertrail.ui.viewdata import coin, plural
 
 STALE_AFTER_DAYS = 2
@@ -94,7 +103,14 @@ def _git_cause(result: PullResult) -> str:
             if result.detail
             else "git could not be started"
         )
-    lines = [ln.strip() for ln in result.detail.splitlines()]
+    if result.message == NO_GH:
+        return (
+            "The GitHub CLI (gh) could not be started: install it and sign in with gh auth login."
+        )
+    lines = [ln.strip() for ln in result.detail.splitlines() if ln.strip()]
+    if result.message == DOWNLOAD_FAILED:
+        why = f": {lines[-1]}" if lines else ""
+        return _sentence(f"The item data could not be downloaded{why}")
     for line in reversed(lines):
         for prefix in ("fatal:", "error:"):
             if line.lower().startswith(prefix):
@@ -113,7 +129,9 @@ def pull_failure(result: PullResult, *, as_of: datetime | None, at: datetime) ->
             "Your local archive is unchanged — everything up to "
             f"{fmt.short_datetime(as_of)} is still here."
         )
-    request = [COMMAND]
+    request = [
+        "gh api … actions/artifacts" if result.message in (NO_GH, DOWNLOAD_FAILED) else COMMAND
+    ]
     if result.returncode is not None:
         request.append(f"exit {result.returncode}")
     request.append(fmt.clock(at))

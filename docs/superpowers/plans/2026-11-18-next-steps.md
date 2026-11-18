@@ -8,6 +8,10 @@ Date: 2026-11-18. Follows `2026-11-18-blizzard-source.md` (WP0 to WP5 done, WP7.
 - The public tree has no mention of the old source left: `tests/test_no_old_source.py` guards it. The `collector/legacy/` package, its test, the probe scripts, the own-scans note and the finished 2026-11-17 plans are deleted. CLAUDE.md and CHANGELOG describe only the Blizzard setup.
 - Still open from the old plan: the old source is still in the public repo's **git history** (origin `main` and `dev`), in 13 `claude/*` branches and worktrees, in the old `private/` clone, and in the auto-memory.
 
+## Copied data moved off git (done 2026-11-18)
+
+The `window` branch is replaced by the `copied-data` Actions artifact (retention 1 day, rows pruned at 29 days). See `docs/architecture.md`. Left: push `dev`, then push the data repo's new workflows and config (in that order: the old code rejects the new `artifact_days` key), then delete the old `window` branch on GitHub (Jack confirms).
+
 ## Phase A: finish the purge (Jack confirms each step in chat)
 
 Each step can't be undone, so each one waits for Jack's yes.
@@ -21,7 +25,7 @@ Each step can't be undone, so each one waits for Jack's yes.
 ## Phase B: prove the live pipeline (plan task 7.3)
 
 1. **Scheduled hourly runs.** Confirm that the `35 * * * *` cron fires on its own (new repos sometimes start late) and that runs at :35 find the :22 snapshot. Look for "not modified" exits and gaps in `hourly/`.
-2. **First nightly run.** It should write `selection/<day>.parquet`, and `git log` on `window` should show one commit. Check that the force-push leaves `window/` working after a GUI pull.
+2. **Copied-data artifact.** After the first runs on the new workflows, the newest `copied-data` artifact holds `blizzard/items` and `blizzard/recipes`, older ones show as expired after a day, and the first nightly run writes `selection/<day>.parquet`. A GUI pull fills `window/` and removes the old window worktree.
 3. **Logs.** `gh run view --log` holds no prices and no secrets (grep for `unit_price`, `buyout`, `client_secret`).
 4. **GUI on real data.** Pull in the app, then check that the data age is under 2 h, item names show, the credit is visible, and every pattern tab shows either results or a correct "ready on" date.
 5. **Actions minutes.** After 3 days, read the minutes actually used. The estimate is about 1,500 of 2,000 a month, which leaves little headroom. If it runs higher, options are a lighter hourly job (cache `uv`), skipping hours with no change, or the Raspberry Pi.

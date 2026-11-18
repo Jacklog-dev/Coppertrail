@@ -1,5 +1,7 @@
 # Blizzard as the only data source
 
+> **Superseded in part (2026-11-18):** copied data no longer lives on a `window` branch. It moves as the `copied-data` GitHub Actions artifact and is unpacked into `<data>/window/` (not in git). `docs/architecture.md` describes the current design.
+
 Date: 2026-11-18. Status: design, waiting for Jack's approval.
 
 ## Intent

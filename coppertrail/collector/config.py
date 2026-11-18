@@ -50,7 +50,8 @@ class Selection:
 
 @dataclass(frozen=True)
 class Retention:
-    copied_days: int = 30
+    copied_days: int = 30  # no copy of Blizzard data, anywhere, is older than this
+    artifact_days: int = 1  # the workflows' artifact `retention-days`; pruning leaves room for it
     summary_retention_days: int = 0  # 0 = keep hourly summaries for good
 
 

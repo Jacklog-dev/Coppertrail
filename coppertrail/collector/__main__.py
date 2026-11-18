@@ -47,7 +47,7 @@ def main(argv: list[str] | None = None) -> int:
         "--data-dir",
         type=Path,
         default=Path(os.environ.get("COPPERTRAIL_DATA", DEFAULT_DATA_DIR)),
-        help="data repo checkout (main); the window branch is checked out in <data-dir>/window",
+        help="data repo checkout (main); copied data lives in <data-dir>/window (not in git)",
     )
     p.add_argument("-v", "--verbose", action="store_true")
     sub = p.add_subparsers(dest="cmd", required=True)

@@ -22,7 +22,7 @@ from coppertrail.ui import tokens
 from coppertrail.ui.bridge import Bridge
 from coppertrail.ui.devserver import WEB_DIR, serve
 from coppertrail.ui.format import CREDIT_URL
-from coppertrail.ui.pull import PullResult, run_pull
+from coppertrail.ui.pull import PullResult, prune_copied, run_pull
 
 Emit = Callable[[str, dict], None]
 VIEW_IDS = ("overview", "item", "patterns", "movers")  # web/js/navrail.js VIEWS
@@ -240,4 +240,7 @@ def main(argv: list[str] | None = None) -> int:
         size = parse_size(args.size or "1920x1080")
         return run_screenshot(Bridge(args.data_dir), page, args.screenshot, size)
     window_page = page.split("#")[0]  # a file path: the window always opens on the overview
-    return run_window(AppApi(args.data_dir), window_page, parse_size(args.size or "1600x1000"))
+    api = AppApi(args.data_dir)
+    if api.data_dir:  # copied Blizzard data older than 30 days goes, even without a pull
+        prune_copied(Path(api.data_dir))
+    return run_window(api, window_page, parse_size(args.size or "1600x1000"))

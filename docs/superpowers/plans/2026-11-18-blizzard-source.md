@@ -1,5 +1,7 @@
 # Blizzard Source Implementation Plan
 
+> **Superseded in part (2026-11-18):** copied data no longer lives on a `window` branch. It moves as the `copied-data` GitHub Actions artifact and is unpacked into `<data>/window/` (not in git). `docs/architecture.md` describes the current design.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the old data source with Blizzard's Game Data API: an hourly collector in GitHub Actions, a 30-day window for copied data, our own conclusions kept long-term, patterns and GUI on the new tables. Then remove every trace of the old source.
