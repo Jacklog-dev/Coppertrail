@@ -6,6 +6,7 @@ import { call } from "./api.js";
 import { axisCoins, axisCount, change, coin } from "./coins.js";
 import { barChart, chart, chartCard, MARKERS, markerLegend } from "./charts.js";
 import { el, replace } from "./dom.js";
+import { itemIcon, withIcon } from "./itemicon.js";
 import { icon } from "./icons.js";
 import { closePopover, openPopover } from "./popover.js";
 import * as states from "./states.js";
@@ -99,7 +100,7 @@ function fillList(list, nav, state) {
       el(
         "button",
         { class: "item-row", attrs: { role: "option", "data-id": r.id, "data-name": r.name.toLowerCase(), "aria-selected": "false" }, on: { click: () => nav.selectItem(r.id) } },
-        el("span", { class: "item-name", text: r.name }),
+        el("span", { class: "item-name" }, withIcon(r.id, r.name)),
         el("span", { class: "item-price" }, coin(r.price)),
         el("span", { class: "item-class sub", text: r.class }),
         el("span", { class: "item-change" }, r.change ? change(r.change.text, r.change.dir) : el("span", { class: "muted", text: "–" })),
@@ -209,7 +210,7 @@ function buildDetail(d, state, nav) {
   const cards = [];
   const price = priceCard(d.chart, stale, cards);
   const bottom = el("div", { class: "split-even" }, profileCard(d.profile, cards), eventsCard(d.events));
-  replace(view.main, viewHead(d.head.name, d.head.sub, tools), el("div", { class: "tiles five" }, d.tiles.map(tile)), price, bottom);
+  replace(view.main, viewHead(d.head.name, d.head.sub, tools, itemIcon(d.head.id, true)), el("div", { class: "tiles five" }, d.tiles.map(tile)), price, bottom);
   for (const c of cards) c.mount();
 }
 

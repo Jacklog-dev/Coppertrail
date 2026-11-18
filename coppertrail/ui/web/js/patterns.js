@@ -5,6 +5,7 @@ import { call } from "./api.js";
 import { axisCoins, axisCount, axisPercent, axisSigned, change, coin } from "./coins.js";
 import { chart, chartCard, markerLegend } from "./charts.js";
 import { el, replace } from "./dom.js";
+import { itemIcon } from "./itemicon.js";
 import { icon } from "./icons.js";
 import { closePopover, openPopover } from "./popover.js";
 import * as states from "./states.js";
@@ -153,9 +154,10 @@ function patternChart(c, cards, stale) {
 
 // Ranked table ---------------------------------------------------------------------------------
 
-function cell(kind, v) {
+function cell(kind, v, itemId) {
   if (kind === "rank") return el("td", { class: "muted rank", text: v });
-  if (kind === "item") return el("td", { class: "item-cell" }, el("div", { class: "cell-name", text: v.name }), v.sub ? el("div", { class: "sub", text: v.sub }) : null);
+  if (kind === "item")
+    return el("td", { class: "item-cell" }, el("div", { class: "icon-row" }, itemIcon(itemId), el("div", { class: "icon-text" }, el("div", { class: "cell-name", text: v.name }), v.sub ? el("div", { class: "sub", text: v.sub }) : null)));
   if (kind === "muted") return el("td", { class: "muted", text: v });
   if (kind === "text") return el("td", { text: v });
   if (kind === "num") return el("td", { class: "num", text: v });
@@ -194,7 +196,7 @@ function rankedTable(t, choose) {
               keydown: (e) => e.key === "Enter" && r.id !== t.selected && choose({ select: r.id, item: null }),
             },
           },
-          t.columns.map((c, i) => cell(c.kind, r.cells[i])),
+          t.columns.map((c, i) => cell(c.kind, r.cells[i], r.item)),
         ),
       ),
     ),

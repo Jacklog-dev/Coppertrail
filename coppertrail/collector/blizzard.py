@@ -187,6 +187,17 @@ class BlizzardClient:
                 return r.json(), r.headers.get("battlenet-namespace", f"{ns}-{self.cfg.region}")
         return None, ""
 
+    def media_icon(self, item_id: int) -> int | None:
+        """The item's icon file id (`file_data_id` of the "icon" asset), or None if unknown."""
+        for ns in (STATIC, STATIC_FALLBACK):
+            r = self.get(f"/data/wow/media/item/{item_id}", ns)
+            if r.status_code != 200:
+                continue
+            for asset in r.json().get("assets", []):
+                if asset.get("key") == "icon" and asset.get("file_data_id"):
+                    return int(asset["file_data_id"])
+        return None
+
     def static_namespace(self) -> str:
         r = self.get("/data/wow/item-class/index", STATIC)
         if r.status_code != 200:

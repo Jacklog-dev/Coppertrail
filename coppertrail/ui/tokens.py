@@ -108,6 +108,8 @@ SIZES = {
     "view_pad": 24,
     "view_pad_compact": 16,
     "gap": 16,
+    "item_icon": 18,  # item icon beside names in lists and tables
+    "item_icon_large": 40,  # item icon in the Item detail header
 }
 CHART = {
     "line_primary": 2.25,

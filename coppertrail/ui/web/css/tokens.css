@@ -102,6 +102,8 @@
   --size-view-pad: 24px;
   --size-view-pad-compact: 16px;
   --size-gap: 16px;
+  --size-item-icon: 18px;
+  --size-item-icon-large: 40px;
   --coin-mark: 7px;
   --coin-gap: 3px;
   --coin-ring: 1px;

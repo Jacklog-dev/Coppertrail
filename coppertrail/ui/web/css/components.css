@@ -182,3 +182,17 @@ i.marker.triangle { clip-path: polygon(0 0, 100% 0, 50% 100%); }
 .rangebar .current { fill: var(--s4); }
 .chart { position: relative; }
 .chart .u-select { background: rgb(from var(--accent) r g b / 0.12); }
+
+/* Item icons (js/itemicon.js): one 1 px border, the fallback is an empty square. */
+.with-icon { display: inline-flex; align-items: center; gap: var(--space-2); min-width: 0; max-width: 100%; vertical-align: middle; }
+.with-icon > :last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item-icon {
+  flex: none; display: inline-block; width: var(--size-item-icon); height: var(--size-item-icon);
+  border: 1px solid var(--border); border-radius: 2px; background: var(--raised); object-fit: cover;
+}
+.item-icon.large { width: var(--size-item-icon-large); height: var(--size-item-icon-large); border-radius: var(--radius-control); }
+.with-icon.large { gap: var(--space-3); }
+.icon-row { display: flex; align-items: flex-start; gap: var(--space-2); min-width: 0; }
+.icon-row > .item-icon { margin-top: 1px; }
+.icon-text { min-width: 0; flex: 1; }
+.head-lead { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }

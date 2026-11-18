@@ -41,3 +41,17 @@ def test_no_hard_coded_colours_or_fonts_outside_tokens():
 def test_pages_have_csp():
     for page in WEB_DIR.glob("*.html"):
         assert 'http-equiv="Content-Security-Policy"' in page.read_text(encoding="utf-8"), page
+
+
+def test_pages_allow_render_host_images_only():
+    # Item icons load by URL from Blizzard's render host (coppertrail/ui/icons.py); nothing else.
+    import re as _re
+
+    from coppertrail.ui.icons import ICON_HOST
+
+    for page in WEB_DIR.glob("*.html"):
+        csp = _re.search(r'Content-Security-Policy" content="([^"]+)"', page.read_text("utf-8"))
+        rules = dict(r.strip().split(" ", 1) for r in csp.group(1).split(";"))
+        assert rules["img-src"] == f"'self' data: {ICON_HOST}", page
+        assert "http" not in rules["default-src"], page
+        assert all("http" not in v for k, v in rules.items() if k != "img-src"), page

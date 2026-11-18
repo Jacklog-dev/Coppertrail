@@ -5,6 +5,7 @@ import { call } from "./api.js";
 import { change, coin } from "./coins.js";
 import { rangeBar, sparkline } from "./charts.js";
 import { el, replace } from "./dom.js";
+import { itemIcon, withIcon } from "./itemicon.js";
 import { icon } from "./icons.js";
 import { closePopover, openPopover } from "./popover.js";
 import { viewHead, viewHost } from "./viewkit.js";
@@ -72,6 +73,10 @@ function fillTop(root, top, m, nav, reload) {
 }
 
 function itemLink(r, nav) {
+  return withIcon(r.id, itemButton(r, nav));
+}
+
+function itemButton(r, nav) {
   return el("button", { class: "item-link", text: r.name, attrs: { title: `Show ${r.name} in Item detail` }, on: { click: () => nav.go("item", { item: r.id }) } });
 }
 
@@ -185,7 +190,7 @@ function mispricingCard(m, nav, reload) {
               el(
                 "tr",
                 {},
-                el("td", { class: "item-cell" }, itemLink(r, nav), el("div", { class: "sub", text: r.group })),
+                el("td", { class: "item-cell" }, el("div", { class: "icon-row" }, itemIcon(r.id), el("div", { class: "icon-text" }, itemButton(r, nav), el("div", { class: "sub", text: r.group })))),
                 el("td", { class: "num" }, coin(r.price)),
                 el("td", { class: "num" }, coin(r.usual)),
                 el("td", { class: "num" }, r.discount ? change(r.discount.text, r.discount.dir) : "–"),
