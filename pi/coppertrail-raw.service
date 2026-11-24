@@ -1,0 +1,14 @@
+[Unit]
+Description=Coppertrail: store Blizzard's listing responses as received
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=coppertrail
+Group=coppertrail
+EnvironmentFile=/etc/coppertrail/blizzard.env
+Environment=COPPERTRAIL_DB=/var/lib/coppertrail/raw.sqlite
+ExecStart=/usr/bin/python3 /opt/coppertrail/coppertrail_raw.py collect
+TimeoutStartSec=50min
+Nice=5
