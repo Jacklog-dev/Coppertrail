@@ -368,6 +368,159 @@ def collect(
     return ok
 
 
+# Items -----------------------------------------------------------------------
+
+REFRESH_DAYS = 25
+RETRY_404_DAYS = 7
+ITEM_LAST_MINUTE = 20
+ITEM_NAMESPACES = ("static-forever-eu", "static-classic1x-eu")
+
+
+def item_ids(body: bytes, encoding: str) -> set[int]:
+    """The item ids in one listing response."""
+    data = gzip.decompress(body) if encoding == "gzip" else body
+    return {a["item"]["id"] for a in json.loads(data).get("auctions") or []}
+
+
+def listed_ids(con: sqlite3.Connection) -> set[int]:
+    """Item ids in the newest stored response of each endpoint."""
+    ids: set[int] = set()
+    for endpoint in ENDPOINTS:
+        row = con.execute(
+            "SELECT body, encoding FROM snapshot WHERE endpoint = ?"
+            " ORDER BY last_modified DESC LIMIT 1",
+            (endpoint,),
+        ).fetchone()
+        if row:
+            ids |= item_ids(row[0], row[1])
+    return ids
+
+
+def due_items(con: sqlite3.Connection, ids: set[int], now: datetime) -> list[int]:
+    """Ids to look up: missing first, then 200 rows older than REFRESH_DAYS, then 404 rows
+    older than RETRY_404_DAYS (each oldest first). Only the newest row per item counts."""
+    newest = {
+        item_id: (status, fetched_at)
+        for item_id, status, fetched_at in con.execute(
+            "SELECT item_id, status, max(fetched_at) FROM item GROUP BY item_id"
+        )
+    }
+    refresh = iso(now - timedelta(days=REFRESH_DAYS))
+    retry = iso(now - timedelta(days=RETRY_404_DAYS))
+    missing = sorted(i for i in ids if i not in newest)
+    stale = [(newest[i][1], i) for i in ids if i in newest and newest[i][0] == 200]
+    gone = [(newest[i][1], i) for i in ids if i in newest and newest[i][0] != 200]
+    return (
+        missing
+        + [i for at, i in sorted(stale) if at <= refresh]
+        + [i for at, i in sorted(gone) if at <= retry]
+    )
+
+
+class ItemClient:
+    """Item lookups over one kept-alive HTTPS connection."""
+
+    def __init__(
+        self,
+        client: Client,
+        connect: Callable[[], object] = lambda: http.client.HTTPSConnection(API_HOST, timeout=30),
+        sleep: Callable[[float], None] = time.sleep,
+        retries: int = 4,
+    ):
+        self._client = client
+        self._connect = connect
+        self._sleep = sleep
+        self._retries = retries
+        self._conn = None
+
+    def _send(self, path: str) -> object:
+        """One request; reconnects once if the kept-alive connection was dropped."""
+        headers = {"Authorization": f"Bearer {self._client.token()}", "Accept-Encoding": "gzip"}
+        for again in (True, False):
+            if self._conn is None:
+                self._conn = self._connect()
+            try:
+                self._conn.request("GET", path, headers=headers)
+                resp = self._conn.getresponse()
+                resp.body = resp.read()  # read fully, so the connection can be reused
+                return resp
+            except (http.client.HTTPException, OSError):
+                self._conn.close()
+                self._conn = None
+                if not again:
+                    raise
+
+    def _get(self, item_id: int, namespace: str) -> tuple[int, bytes, str]:
+        query = urllib.parse.urlencode({"namespace": namespace, "locale": LOCALE})
+        path = f"/data/wow/item/{item_id}?{query}"
+        refreshed = False
+        status: object = None
+        for attempt in range(self._retries + 1):
+            try:
+                resp = self._send(path)
+            except (http.client.HTTPException, OSError) as exc:
+                status = type(exc).__name__
+                self._sleep(2.0**attempt * 5)
+                continue
+            status = resp.status
+            if status in (200, 404):
+                gz = (resp.getheader("Content-Encoding") or "").lower() == "gzip"
+                return status, resp.body, "gzip" if gz else "identity"
+            if status == 401 and not refreshed:
+                refreshed = True
+                self._client.forget_token()
+                continue
+            if status not in _RETRY:
+                break
+            self._sleep(_retry_after(resp.getheader("Retry-After"), 2.0**attempt * 5))
+        raise FetchError(f"item {item_id}: failed ({status})")
+
+    def lookup(self, item_id: int) -> tuple[int, str | None, bytes | None, str | None]:
+        """(status, namespace, body, encoding): the first namespace that knows the item,
+        or (404, None, None, None)."""
+        for namespace in ITEM_NAMESPACES:
+            status, body, encoding = self._get(item_id, namespace)
+            if status == 200:
+                return 200, namespace, body, encoding
+        return 404, None, None, None
+
+
+def run_items(
+    items: ItemClient,
+    db: Path,
+    now: Callable[[], datetime] = lambda: datetime.now(UTC),
+    deadline: datetime | None = None,
+) -> bool:
+    """Look up every due item, one at a time, until done or `deadline` (default :20).
+    Each answer is committed on its own. True unless a lookup failed."""
+    start = now()
+    if deadline is None:
+        deadline = start.replace(minute=ITEM_LAST_MINUTE, second=0, microsecond=0)
+    con = connect(db)
+    done = found = 0
+    ok = True
+    try:
+        due = due_items(con, listed_ids(con), start)
+        for item_id in due:
+            if now() >= deadline:
+                break
+            try:
+                status, namespace, body, encoding = items.lookup(item_id)
+            except FetchError as exc:
+                log(str(exc))
+                ok = False
+                break
+            store_item(con, item_id, namespace, status, body, encoding, now())
+            done += 1
+            found += status == 200
+    finally:
+        con.close()
+    log(
+        f"items: {done} looked up ({found} found, {done - found} not found), {len(due) - done} left"
+    )
+    return ok
+
+
 # Main ------------------------------------------------------------------------
 
 
@@ -446,6 +599,8 @@ def main(argv: list[str] | None = None) -> int:
             log(f"deleted {snaps} snapshots and {items} item rows (30-day limit)")
         return collect(client, db, wait=not args.once, old_dir=Path(OLD_RAW_DIR))
 
+    if args.command == "items":
+        return _locked(db, lambda: run_items(ItemClient(client), db))
     return _locked(db, run_collect)
 
 
