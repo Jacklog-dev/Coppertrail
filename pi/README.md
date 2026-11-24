@@ -9,7 +9,7 @@ The Pi keeps Blizzard's data exactly as sent, for 30 days, in one SQLite file. C
 | `coppertrail-raw.timer` | :27 UTC, retries every 5 min until :55 | `collect`: deletes rows that would turn 30 days old before the next run, then stores each new listing response (items, commodities) as received, gzip and all |
 | `coppertrail-items.timer` | :00 UTC, stops at :20 | `items`: reads the item ids of the newest listing responses and looks up item details that are missing, older than 25 days, or a 404 older than 7 days (`static-forever-eu`, then `static-classic1x-eu`) |
 
-Both take the same lock (`/var/lib/coppertrail/.lock`). Exit codes: 0 ok or nothing new, 1 failed, 2 locked. Logs (`journalctl -u coppertrail-raw.service`, `-u coppertrail-items.service`) carry sizes and counts, never bodies or credentials.
+Both take the same lock (`/var/lib/coppertrail/.lock`); `collect` waits for it until :35 if an `items` run overran, `items` gives up at once. Exit codes: 0 ok or nothing new, 1 failed, 2 locked. Logs (`journalctl -u coppertrail-raw.service`, `-u coppertrail-items.service`) carry sizes and counts, never bodies or credentials.
 
 ## Install or update
 
