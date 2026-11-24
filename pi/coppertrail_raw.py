@@ -521,6 +521,68 @@ def run_items(
     return ok
 
 
+# Export ----------------------------------------------------------------------
+
+_SNAPSHOT_COLS = ("id", "endpoint", "last_modified", "fetched_at", "namespace", "encoding")
+_ITEM_COLS = ("seq", "item_id", "namespace", "status", "fetched_at", "encoding")
+
+
+def _line(obj: dict) -> bytes:
+    return json.dumps(obj, separators=(",", ":")).encode() + b"\n"
+
+
+def export(db: Path, out: BinaryIO, after_snapshot: int, after_item: int) -> tuple[int, int]:
+    """Stream every snapshot row after `after_snapshot`, then every item row after
+    `after_item`: per row one JSON header line, then exactly `size` bytes of body. A last
+    line {"end": true, "snapshot_max": N, "item_max": M} closes the stream. Read-only, one
+    read transaction, one row in memory at a time. Returns the rows written."""
+    con = connect_ro(db)
+    snaps = items = 0
+    snapshot_max = item_max = 0
+    if con is not None:
+        try:
+            con.execute("BEGIN")  # one consistent view for the whole export
+            for row in con.execute(
+                f"SELECT {', '.join(_SNAPSHOT_COLS)}, body FROM snapshot WHERE id > ? ORDER BY id",
+                (after_snapshot,),
+            ):
+                body = row[-1]
+                out.write(
+                    _line(
+                        {
+                            "table": "snapshot",
+                            **dict(zip(_SNAPSHOT_COLS, row[:-1], strict=True)),
+                            "size": len(body),
+                        }
+                    )
+                )
+                out.write(body)
+                snaps += 1
+            for row in con.execute(
+                f"SELECT {', '.join(_ITEM_COLS)}, body FROM item WHERE seq > ? ORDER BY seq",
+                (after_item,),
+            ):
+                body = row[-1] or b""
+                out.write(
+                    _line(
+                        {
+                            "table": "item",
+                            **dict(zip(_ITEM_COLS, row[:-1], strict=True)),
+                            "size": len(body),
+                        }
+                    )
+                )
+                out.write(body)
+                items += 1
+            snapshot_max = con.execute("SELECT coalesce(max(id), 0) FROM snapshot").fetchone()[0]
+            item_max = con.execute("SELECT coalesce(max(seq), 0) FROM item").fetchone()[0]
+        finally:
+            con.close()
+    out.write(_line({"end": True, "snapshot_max": snapshot_max, "item_max": item_max}))
+    out.flush()
+    return snaps, items
+
+
 # Main ------------------------------------------------------------------------
 
 
@@ -575,6 +637,11 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     db = Path(args.db)
+    if args.command == "export":
+        # Read-only and needs no credentials: the PC runs it over SSH.
+        snaps, items = export(db, sys.stdout.buffer, args.after_snapshot, args.after_item)
+        print(f"exported {snaps} snapshots and {items} item rows", file=sys.stderr, flush=True)
+        return 0
     creds = _credentials()
     if creds is None:
         return 1
