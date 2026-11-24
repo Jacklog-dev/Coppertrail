@@ -209,6 +209,13 @@ class Client:
         self._retries = retries
         self._token: str | None = None
 
+    def token(self) -> str:
+        """The current token, or a new one."""
+        return self._token or self._new_token()
+
+    def forget_token(self) -> None:
+        self._token = None
+
     def _new_token(self) -> str:
         req = urllib.request.Request(
             TOKEN_URL,
@@ -230,38 +237,36 @@ class Client:
 
     def fetch(
         self, endpoint: str, since: datetime | None
-    ) -> tuple[int, datetime | None, str, dict | None]:
-        """GET one listing endpoint. Returns (status, last_modified, namespace, body);
-        status 304 has no body."""
+    ) -> tuple[int, datetime | None, str, bytes | None, str | None]:
+        """GET one listing endpoint, body as received (never decompressed).
+
+        Returns (status, last_modified, namespace, body, encoding); 304 has no body."""
         query = urllib.parse.urlencode({"namespace": NAMESPACE, "locale": LOCALE})
         url = f"{API}{ENDPOINTS[endpoint]}?{query}"
         refreshed = False
         status: object = None
         for attempt in range(self._retries + 1):
-            headers = {
-                "Authorization": f"Bearer {self._token or self._new_token()}",
-                "Accept-Encoding": "gzip",
-            }
+            headers = {"Authorization": f"Bearer {self.token()}", "Accept-Encoding": "gzip"}
             if since is not None:
                 headers["If-Modified-Since"] = format_datetime(since, usegmt=True)
             req = urllib.request.Request(url, headers=headers)
             try:
                 with self._open(req, timeout=self._timeout) as r:
                     data = r.read()
-                    if (r.headers.get("Content-Encoding") or "").lower() == "gzip":
-                        data = gzip.decompress(data)
+                    gz = (r.headers.get("Content-Encoding") or "").lower() == "gzip"
                     lm = r.headers.get("Last-Modified")
                     if not lm:
                         raise FetchError(f"{endpoint}: no Last-Modified header")
                     ns = r.headers.get("Battlenet-Namespace") or NAMESPACE
-                    return 200, parsedate_to_datetime(lm).astimezone(UTC), ns, json.loads(data)
+                    lm_dt = parsedate_to_datetime(lm).astimezone(UTC)
+                    return 200, lm_dt, ns, data, "gzip" if gz else "identity"
             except urllib.error.HTTPError as exc:
                 status = exc.code
                 if exc.code == 304:
-                    return 304, None, NAMESPACE, None
+                    return 304, None, NAMESPACE, None, None
                 if exc.code == 401 and not refreshed:
                     refreshed = True
-                    self._token = None
+                    self.forget_token()
                     continue
                 if exc.code not in _RETRY:
                     break
@@ -282,54 +287,95 @@ def _retry_after(value: str | None, default: float) -> float:
         return default
 
 
-# Run -------------------------------------------------------------------------
+# Collect ---------------------------------------------------------------------
+
+_DAY_FILE = re.compile(r"^\d{4}-\d{2}-\d{2}\.sqlite(-wal|-shm|-journal)?$")
+
+
+def remove_old_store(old_dir: Path) -> int:
+    """Delete the first version's day files (and the folder once empty). Returns files deleted."""
+    if not old_dir.is_dir():
+        return 0
+    gone = 0
+    for p in old_dir.iterdir():
+        if _DAY_FILE.match(p.name):
+            p.unlink()
+            gone += 1
+    lock = old_dir / ".lock"
+    if lock.exists() and all(p == lock for p in old_dir.iterdir()):
+        lock.unlink()
+    if not any(old_dir.iterdir()):
+        old_dir.rmdir()
+    return gone
 
 
 def collect(
     client: Client,
-    raw_dir: Path,
+    db: Path,
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
     sleep: Callable[[float], None] = time.sleep,
     wait: bool = True,
+    old_dir: Path | None = None,
 ) -> bool:
-    """Fetch both endpoints, retrying every RETRY_EVERY_S while Blizzard has nothing
-    new, until minute LAST_MINUTE of the hour. True if every request succeeded."""
+    """Fetch both endpoints, retrying every RETRY_EVERY_S while Blizzard has nothing new
+    (or sent a broken body), until minute LAST_MINUTE. True if nothing failed."""
     start = now()
     deadline = start.replace(minute=LAST_MINUTE, second=0, microsecond=0)
     pending = list(ENDPOINTS)
+    broken: set[str] = set()
     ok = True
-    while pending:
-        for endpoint in list(pending):
-            since = newest_last_modified(raw_dir, endpoint)
-            try:
-                status, lm, ns, body = client.fetch(endpoint, since)
-            except FetchError as exc:
-                log(str(exc))
-                ok = False
+    con = connect(db)
+    try:
+        while pending:
+            for endpoint in list(pending):
+                since = newest_last_modified(con, endpoint)
+                try:
+                    status, lm, ns, body, encoding = client.fetch(endpoint, since)
+                except FetchError as exc:
+                    log(str(exc))
+                    ok = False
+                    pending.remove(endpoint)
+                    continue
+                if status == 304 or lm is None or (since is not None and lm <= since):
+                    continue
+                try:
+                    sid = store_snapshot(con, endpoint, lm, ns, body or b"", encoding, now())
+                except ValueError:
+                    log(f"{endpoint}: broken body, not stored")
+                    broken.add(endpoint)
+                    continue
+                broken.discard(endpoint)
+                if sid is None:
+                    log(f"{endpoint}: {iso(lm)} already stored")
+                else:
+                    size = len(body or b"")
+                    log(f"{endpoint}: stored {size} bytes ({encoding}), Last-Modified {iso(lm)}")
+                    if old_dir is not None:
+                        gone = remove_old_store(old_dir)
+                        if gone:
+                            log(f"removed {gone} files of the old store in {old_dir}")
                 pending.remove(endpoint)
-                continue
-            if status == 304 or lm is None or (since is not None and lm <= since):
-                continue
-            written = store_snapshot(raw_dir, endpoint, lm, ns, body or {}, now())
-            del body
-            if written is None:
-                log(f"{endpoint}: {iso(lm)} already stored")
-            else:
-                log(f"{endpoint}: stored {written} listings, Last-Modified {iso(lm)}")
-            pending.remove(endpoint)
-        if not pending or not wait or now() + timedelta(seconds=RETRY_EVERY_S) > deadline:
-            break
-        sleep(RETRY_EVERY_S)
+            if not pending or not wait or now() + timedelta(seconds=RETRY_EVERY_S) > deadline:
+                break
+            sleep(RETRY_EVERY_S)
+    finally:
+        con.close()
     for endpoint in pending:
-        log(f"{endpoint}: not modified")
+        if endpoint in broken:
+            ok = False
+        else:
+            log(f"{endpoint}: not modified")
     return ok
 
 
-def _lock(raw_dir: Path):
+# Main ------------------------------------------------------------------------
+
+
+def _lock(db: Path):
     import fcntl  # POSIX only; the Pi runs Linux
 
-    raw_dir.mkdir(parents=True, exist_ok=True)
-    fh = open(raw_dir / ".lock", "w")  # noqa: SIM115 - held for the whole run
+    db.parent.mkdir(parents=True, exist_ok=True)
+    fh = open(db.parent / ".lock", "w")  # noqa: SIM115 - held for the whole run
     try:
         fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
@@ -338,41 +384,69 @@ def _lock(raw_dir: Path):
     return fh
 
 
-def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--raw-dir", default=os.environ.get("COPPERTRAIL_RAW_DIR", DEFAULT_RAW_DIR))
-    ap.add_argument("--keep-days", type=int, default=KEEP_DAYS)
-    ap.add_argument("--once", action="store_true", help="do not wait for a new snapshot")
-    ap.add_argument("--check", action="store_true", help="only test the credentials")
-    args = ap.parse_args(argv)
-    raw_dir = Path(args.raw_dir)
-
+def _credentials() -> tuple[str, str] | None:
     client_id = os.environ.get("BLIZZARD_CLIENT_ID", "")
     client_secret = os.environ.get("BLIZZARD_CLIENT_SECRET", "")
     if not client_id or not client_secret:
         log("BLIZZARD_CLIENT_ID / BLIZZARD_CLIENT_SECRET are not set (run set-blizzard-secret.sh)")
+        return None
+    return client_id, client_secret
+
+
+def _locked(db: Path, run: Callable[[], bool]) -> int:
+    lock = _lock(db)
+    if lock is None:
+        log("another run holds the lock")
+        return 2
+    try:
+        return 0 if run() else 1
+    finally:
+        lock.close()
+
+
+def parser() -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--db", default=os.environ.get("COPPERTRAIL_DB", DEFAULT_DB))
+    sub = ap.add_subparsers(dest="command", required=True)
+    c = sub.add_parser("collect", help="store new listing responses (hourly at :27)")
+    c.add_argument("--keep-days", type=int, default=KEEP_DAYS)
+    c.add_argument("--once", action="store_true", help="do not wait for a new snapshot")
+    sub.add_parser("items", help="look up due item details (hourly at :00, until :20)")
+    e = sub.add_parser("export", help="stream rows after the bookmarks to stdout (read-only)")
+    e.add_argument("--after-snapshot", type=int, default=0)
+    e.add_argument("--after-item", type=int, default=0)
+    sub.add_parser("check", help="only test the credentials")
+    return ap
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    db = Path(args.db)
+    creds = _credentials()
+    if creds is None:
         return 1
-    if args.check:
+    client = Client(*creds)
+    if args.command == "check":
         try:
-            Client(client_id, client_secret)._new_token()
+            client.token()
         except FetchError as exc:
             log(str(exc))
             return 1
         log("credentials ok: Blizzard issued a token")
         return 0
 
-    lock = _lock(raw_dir)
-    if lock is None:
-        log("another run holds the lock")
-        return 2
-    try:
+    def run_collect() -> bool:
         # Delete first, so a run that waits or fails still keeps the 30-day limit.
-        for endpoint, lm in prune(raw_dir, datetime.now(UTC), args.keep_days):
-            log(f"{endpoint}: deleted snapshot {lm} (30-day limit)")
-        ok = collect(Client(client_id, client_secret), raw_dir, wait=not args.once)
-        return 0 if ok else 1
-    finally:
-        lock.close()
+        con = connect(db)
+        try:
+            snaps, items = prune(con, datetime.now(UTC), args.keep_days)
+        finally:
+            con.close()
+        if snaps or items:
+            log(f"deleted {snaps} snapshots and {items} item rows (30-day limit)")
+        return collect(client, db, wait=not args.once, old_dir=Path(OLD_RAW_DIR))
+
+    return _locked(db, run_collect)
 
 
 if __name__ == "__main__":

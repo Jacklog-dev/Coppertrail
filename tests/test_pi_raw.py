@@ -119,9 +119,9 @@ def test_store_item_404_has_no_body(tmp_path):
     con = raw.connect(db(tmp_path))
     assert raw.store_item(con, 999, None, 404, None, None, FETCHED) == 1
     con.close()
-    assert rows(
-        db(tmp_path), "SELECT item_id, namespace, status, encoding, body FROM item"
-    ) == [(999, None, 404, None, None)]
+    assert rows(db(tmp_path), "SELECT item_id, namespace, status, encoding, body FROM item") == [
+        (999, None, 404, None, None)
+    ]
 
 
 def test_newest_last_modified(tmp_path):
@@ -225,31 +225,57 @@ def client(fake) -> raw.Client:
     return raw.Client("id", SECRET, opener=fake, sleep=lambda s: None)
 
 
+def stored(tmp_path) -> list[tuple]:
+    return rows(db(tmp_path), "SELECT endpoint, encoding, body FROM snapshot ORDER BY endpoint")
+
+
+def seed(tmp_path, *endpoints, lm=LM):
+    con = raw.connect(db(tmp_path))
+    for e in endpoints:
+        raw.store_snapshot(con, e, lm, "ns", gz(ITEMS), "gzip", FETCHED)
+    con.close()
+
+
+def newest(tmp_path, endpoint):
+    con = raw.connect(db(tmp_path))
+    try:
+        return raw.newest_last_modified(con, endpoint)
+    finally:
+        con.close()
+
+
 def test_new_snapshot_stores_both_endpoints(tmp_path):
-    fake = FakeBlizzard({"items": [snapshot(ITEMS)], "commodities": [snapshot(COMMODITIES)]})
-    assert raw.collect(client(fake), tmp_path, now=lambda: FETCHED, wait=False)
-    path = tmp_path / "2026-11-24.sqlite"
-    assert rows(path, "SELECT endpoint, listings FROM snapshot ORDER BY endpoint") == [
-        ("commodities", 1),
-        ("items", 2),
+    items, commodities = snapshot(ITEMS), snapshot(COMMODITIES)
+    fake = FakeBlizzard({"items": [items], "commodities": [commodities]})
+    assert raw.collect(client(fake), db(tmp_path), now=lambda: FETCHED, wait=False)
+    assert stored(tmp_path) == [
+        ("commodities", "gzip", commodities.read()),
+        ("items", "gzip", items.read()),
     ]
-    assert rows(path, "SELECT unit_price FROM listing WHERE auction_id = 10") == [(55,)]
     listing_req = fake.requests[1]
     assert listing_req.get_header("Authorization") == f"Bearer {TOKEN}"
+    assert listing_req.get_header("Accept-encoding") == "gzip"
     assert "namespace=dynamic-forever-eu" in listing_req.full_url
 
 
+def test_uncompressed_answer_is_stored_as_identity(tmp_path):
+    plain = json.dumps(ITEMS).encode()
+    resp = Resp(plain, {"Last-Modified": format_datetime(LM, usegmt=True)})
+    fake = FakeBlizzard({"items": [resp], "commodities": [http_error(304)]})
+    assert raw.collect(client(fake), db(tmp_path), now=lambda: FETCHED, wait=False)
+    assert stored(tmp_path) == [("items", "identity", plain)]
+
+
 def test_not_modified_stores_nothing_and_sends_if_modified_since(tmp_path):
-    raw.store_snapshot(tmp_path, "items", LM, "ns", ITEMS, FETCHED)
-    raw.store_snapshot(tmp_path, "commodities", LM, "ns", COMMODITIES, FETCHED)
+    seed(tmp_path, "items", "commodities")
     fake = FakeBlizzard({"items": [http_error(304)], "commodities": [snapshot(COMMODITIES)]})
-    assert raw.collect(client(fake), tmp_path, now=lambda: FETCHED, wait=False)
-    assert rows(tmp_path / "2026-11-24.sqlite", "SELECT count(*) FROM snapshot") == [(2,)]
+    assert raw.collect(client(fake), db(tmp_path), now=lambda: FETCHED, wait=False)
+    assert rows(db(tmp_path), "SELECT count(*) FROM snapshot") == [(2,)]
     assert fake.requests[1].get_header("If-modified-since") == format_datetime(LM, usegmt=True)
 
 
 def test_waits_for_a_new_snapshot_until_minute_55(tmp_path):
-    raw.store_snapshot(tmp_path, "items", LM, "ns", ITEMS, FETCHED)
+    seed(tmp_path, "items")
     newer = datetime(2026, 11, 24, 13, 22, 50, tzinfo=UTC)
     clock = iter([datetime(2026, 11, 24, 13, m, tzinfo=UTC) for m in (27, 27, 28, 32, 33)])
     slept = []
@@ -259,9 +285,22 @@ def test_waits_for_a_new_snapshot_until_minute_55(tmp_path):
             "commodities": [snapshot(COMMODITIES, newer)],
         }
     )
-    assert raw.collect(client(fake), tmp_path, now=lambda: next(clock), sleep=slept.append)
+    assert raw.collect(client(fake), db(tmp_path), now=lambda: next(clock), sleep=slept.append)
     assert slept == [raw.RETRY_EVERY_S]
-    assert raw.newest_last_modified(tmp_path, "items") == newer
+    assert newest(tmp_path, "items") == newer
+
+
+def test_broken_body_is_retried_then_fails(tmp_path, capsys):
+    broken = snapshot(ITEMS)
+    broken._body = broken._body[:-20]
+    clock = iter([datetime(2026, 11, 24, 13, m, tzinfo=UTC) for m in (27, 27, 28, 52)])
+    fake = FakeBlizzard({"items": [broken, http_error(304)], "commodities": [http_error(304)] * 2})
+    assert (
+        raw.collect(client(fake), db(tmp_path), now=lambda: next(clock), sleep=lambda s: None)
+        is False
+    )
+    assert rows(db(tmp_path), "SELECT count(*) FROM snapshot") == [(0,)]
+    assert "items: broken body, not stored" in capsys.readouterr().out
 
 
 def test_retries_on_429_and_refreshes_token_on_401(tmp_path):
@@ -271,14 +310,14 @@ def test_retries_on_429_and_refreshes_token_on_401(tmp_path):
             "commodities": [snapshot(COMMODITIES)],
         }
     )
-    assert raw.collect(client(fake), tmp_path, now=lambda: FETCHED, wait=False)
+    assert raw.collect(client(fake), db(tmp_path), now=lambda: FETCHED, wait=False)
     tokens = [r for r in fake.requests if r.full_url == raw.TOKEN_URL]
     assert len(tokens) == 2
 
 
 def test_errors_never_show_the_secret_or_token(tmp_path, capsys):
     fake = FakeBlizzard({"items": [http_error(403)], "commodities": [http_error(500)] * 5})
-    assert raw.collect(client(fake), tmp_path, now=lambda: FETCHED, wait=False) is False
+    assert raw.collect(client(fake), db(tmp_path), now=lambda: FETCHED, wait=False) is False
     out = capsys.readouterr().out
     assert "items: failed (403)" in out
     assert "commodities: failed (500)" in out
@@ -286,10 +325,40 @@ def test_errors_never_show_the_secret_or_token(tmp_path, capsys):
         assert secret not in out
 
 
+def test_collect_log_has_no_body(tmp_path, capsys):
+    fake = FakeBlizzard({"items": [snapshot(ITEMS)], "commodities": [snapshot(COMMODITIES)]})
+    raw.collect(client(fake), db(tmp_path), now=lambda: FETCHED, wait=False)
+    out = capsys.readouterr().out
+    assert "items: stored" in out and "bytes (gzip), Last-Modified 2026-11-24T12:22:55Z" in out
+    assert "auctions" not in out
+
+
+def test_old_day_files_go_after_first_store(tmp_path):
+    old = tmp_path / "old"
+    old.mkdir()
+    for name in ("2026-11-23.sqlite", "2026-11-23.sqlite-wal", "notes.txt"):
+        (old / name).write_bytes(b"x")
+    fake = FakeBlizzard({"items": [http_error(304)], "commodities": [http_error(304)]})
+    raw.collect(client(fake), db(tmp_path), now=lambda: FETCHED, wait=False, old_dir=old)
+    assert len(list(old.iterdir())) == 3  # nothing stored: old store stays
+    fake = FakeBlizzard({"items": [snapshot(ITEMS)], "commodities": [http_error(304)]})
+    raw.collect(client(fake), db(tmp_path), now=lambda: FETCHED, wait=False, old_dir=old)
+    assert [p.name for p in old.iterdir()] == ["notes.txt"]
+
+
+def test_remove_old_store_drops_empty_folder(tmp_path):
+    old = tmp_path / "old"
+    old.mkdir()
+    (old / "2026-11-23.sqlite").write_bytes(b"x")
+    assert raw.remove_old_store(old) == 1
+    assert not old.exists()
+    assert raw.remove_old_store(old) == 0
+
+
 def test_missing_credentials_exit_1(tmp_path, monkeypatch, capsys):
     monkeypatch.delenv("BLIZZARD_CLIENT_ID", raising=False)
     monkeypatch.delenv("BLIZZARD_CLIENT_SECRET", raising=False)
-    assert raw.main(["--raw-dir", str(tmp_path)]) == 1
+    assert raw.main(["--db", str(db(tmp_path)), "collect"]) == 1
     assert "set-blizzard-secret.sh" in capsys.readouterr().out
 
 
