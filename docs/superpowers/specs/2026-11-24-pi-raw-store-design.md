@@ -43,7 +43,18 @@ The raw data database must hold everything the Item Detail panel will need: list
 | Items, 152,635 listings | 15.3 MB | 1.65 MB | about 23 s |
 | Commodities, 116,161 listings | 10.1 MB | 1.15 MB | about 15 s |
 
-So one hour is about 2.8 MB compressed, and 30 days about 2 GB. xz saves another third but takes 2 minutes per response on the Pi, so it is out. The script already asks Blizzard for gzip (`Accept-Encoding: gzip`) and gets it, so the Pi can store the bytes it receives without compressing anything. Blizzard's own gzip size still has to be confirmed in the first run (the builder logs it).
+So one hour is about 2.8 MB compressed, and 30 days about 2 GB. xz saves another third but takes 2 minutes per response on the Pi, so it is out. The Pi asks Blizzard for gzip (`Accept-Encoding: gzip`) and stores the bytes it receives without compressing anything.
+
+**Measured after deployment (2026-11-24, 15:23 UTC snapshot):**
+
+| | Result |
+|---|---|
+| Blizzard's own gzip | items 1.71 MB (159,932 listings), commodities 1.21 MB (122,623): **2.9 MB per hour, about 2.1 GB for 30 days** |
+| `collect` | 6.3 s CPU for both responses |
+| `items`, first fill | 7,128 items in 10 min 45 s (about 11 per second over the kept-alive connection): 6,915 found (2,820 of them only in `static-classic1x-eu`), 213 found nowhere; item bodies 5.5 MB in total; peak memory 106 MB of 426 MB |
+| `export` to the PC over SSH | 2.9 MB (one hour) in 9 s; a full 30-day catch-up would take about 1.5 to 2 hours |
+
+The 25-day refresh brings all items due on the same day; at this rate that is one 11-minute run, so it needs no spreading.
 
 ## Approaches
 
@@ -97,7 +108,7 @@ Unchanged where not mentioned: `coppertrail-raw.timer` at :27 UTC, `If-Modified-
 
 ### Item job (separate, so listings never wait)
 
-A second unit, `coppertrail-items.timer`, starts `coppertrail_raw.py items` at :00 every hour. It stops looking things up at :20 at the latest, so it never overlaps the listing job (:27 to :55); both also take the same `flock`, so an overrun only makes one of them exit 2, and the listing job is the one that is scheduled into the free slot. (My call: the listing hour is the data that cannot be fetched again; item details can.)
+A second unit, `coppertrail-items.timer`, starts `coppertrail_raw.py items` at :00 every hour. It stops looking things up at :20 at the latest, so it never overlaps the listing job (:27 to :55); both also take the same `flock`. If an item run overruns, the listing job waits for the lock until :35 (built after the final review), so the listing hour is not lost. (My call: the listing hour is the data that cannot be fetched again; item details can.)
 
 1. Unpack the newest stored body of each endpoint once to collect the item ids (about 20 s on the Pi; the parsed data is dropped right away). This works the same in hours where the listing job stored nothing.
 2. Look up, oldest need first:
@@ -132,4 +143,3 @@ The first version (daily files under `/var/lib/coppertrail/raw/`, one row per li
 
 - Exact retry and timeout values; the shape of the log lines.
 - How item ids are pulled from the bodies (full `json.loads` or a faster scan).
-- Whether the item refresh at 25 days needs spreading out after the first fill (all 7,000 would come due on the same day).
