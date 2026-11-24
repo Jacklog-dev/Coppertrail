@@ -1,0 +1,14 @@
+[Unit]
+Description=Coppertrail: look up item details that are missing or due
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=coppertrail
+Group=coppertrail
+EnvironmentFile=/etc/coppertrail/blizzard.env
+Environment=COPPERTRAIL_DB=/var/lib/coppertrail/raw.sqlite
+ExecStart=/usr/bin/python3 /opt/coppertrail/coppertrail_raw.py items
+TimeoutStartSec=25min
+Nice=10

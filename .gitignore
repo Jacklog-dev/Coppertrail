@@ -4,6 +4,10 @@ data/
 *.parquet
 *.duckdb
 *.duckdb.wal
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
 
 # Python
 __pycache__/

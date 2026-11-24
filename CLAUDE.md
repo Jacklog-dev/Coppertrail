@@ -4,7 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-Since 2026-11-18 the only data source is Blizzard's Game Data API (spec `docs/superpowers/specs/2026-11-18-blizzard-source-design.md`, plan `docs/superpowers/plans/2026-11-18-blizzard-source.md`; WP0 to WP5 and the tree part of WP7 are done; since then the window branch was replaced by the `copied-data` artifact, the history rewrite, local cleanup and end-to-end check are open). The hourly and nightly workflows run in the private data repo. The GUI (pywebview + HTML/CSS/JS, no Qt), all four views, all 12 pattern jobs and the Windows exe build work on the new tables. The archive starts on 2026-11-18, so most patterns report `needs_days` for now (`min_days`: 7 for rhythm, 21 for correlations and reversion, 28 for weekday). GUI specs: `2026-11-17-webview-gui-design.md`, `-gui-groundwork-design.md`, `-market-item-views.md`, `-patterns-movers-views.md`; pattern specs `2026-11-17-patterns-batch-a.md` and `-batch-b.md` (written for the old tables; the Blizzard spec says what changed). Next steps: `docs/superpowers/plans/2026-11-18-next-steps.md`. Branches: session branches merge into `dev`; `main` is a release (major version bump, exe, GitHub tag) and only on Jack's call. **`private/handover/HANDOVER.md` is the product spec. Read it before you start any work.** Section 8b is the visual design.
+**Since 2026-11-24 the only data source is the raw data database on the Raspberry Pi** (see below). The private GitHub data repository and its hourly/nightly workflows are deleted; nothing collected before matters. Two separate databases, never linked: the Pi's raw data database (Blizzard's data as sent, 30 days) and "our" database on the PC (our own conclusions, kept forever). The PC only gets what the Pi's `export` hands out. **Next project: design "our" database on the PC** and refactor the collector onto it; it must fill the Item Detail panel. Until then the collector, `ui/pull.py`, the `window/`/`copied-data` notes and the pattern jobs below describe the old GitHub pipeline and have no live data.
+
+The GUI (pywebview + HTML/CSS/JS, no Qt), its four views, the 12 pattern jobs and the Windows exe build exist and are tested on fixtures. GUI specs: `2026-11-17-webview-gui-design.md`, `-gui-groundwork-design.md`, `-market-item-views.md`, `-patterns-movers-views.md`; pattern specs `2026-11-17-patterns-batch-a.md` and `-batch-b.md`. Branches: session branches merge into `dev`; `main` is a release (major version bump, exe, GitHub tag) and only on Jack's call. **`private/handover/HANDOVER.md` is the product spec. Read it before you start any work.** Section 8b is the visual design. (`private/` is now only a local folder; its GitHub repo is gone.)
+
+## Raspberry Pi (raw data database, the only source)
+
+- **Access:** `ssh coppertrail@coppertrail-pi` (key login, passwordless sudo). Raspberry Pi 1 B+: armv6l, 426 MB RAM, 29 GB SD card, Raspberry Pi OS Lite 32-bit (Trixie), Python 3.13, SQLite 3.46. DuckDB, pyarrow and pandas have no armv6 builds, so code that runs on the Pi uses the standard library only. Keep the Pi's work minimal: it stores and hands out bytes, it never summarises.
+- **Database:** one file, `/var/lib/coppertrail/raw.sqlite` (WAL). `snapshot`: one row per listing response (`items`|`commodities`, hourly), the body exactly as received (gzip), about 2.8 MB per hour, about 2 GB for 30 days. `item`: one row per item lookup (200 body as received, or a 404 row). `id`/`seq` only grow and are the PC's bookmarks.
+- **Jobs:** `coppertrail-raw.timer` at :27 UTC runs `coppertrail_raw.py collect` (deletes rows that would turn 30 days old, then stores new responses; `If-Modified-Since`, retries every 5 min until :55). `coppertrail-items.timer` at :00 runs `items` (item details missing, older than 25 days, or a 404 older than 7 days; stops at :20). Same lock; exit codes 0/1/2. Logs: `journalctl -u coppertrail-raw.service` / `-u coppertrail-items.service`.
+- **Export:** `ssh coppertrail@coppertrail-pi "python3 /opt/coppertrail/coppertrail_raw.py export --after-snapshot ID --after-item SEQ"` streams every newer row (JSON header line + body bytes, then an end line). Read-only, no credentials. Format in `pi/README.md`.
+- **30-day limit:** if the Pi is off nothing is deleted, which Jack accepts (an off Pi is broken, or the project has ended).
+- **Credentials:** `/etc/coppertrail/blizzard.env` (root:coppertrail, 640), set with `sudo bash /opt/coppertrail/set-blizzard-secret.sh` (hidden input, then a token check). Never print or copy that file.
+- **Code:** `pi/` (script, units, `install.sh`, `set-blizzard-secret.sh`), tests `tests/test_pi_*.py`. Deploy: copy `pi/` to the Pi, then `sudo bash install.sh` outside :25–:56 and :00–:20 (`--status` shows both timers, the last log lines and the database size). Spec `docs/superpowers/specs/2026-11-24-pi-raw-store-design.md`.
+- The raw data lives on the Pi only. Never copy it into this repo (an export for a test goes to a scratch folder and is deleted afterwards).
 
 ## Changelog
 
@@ -32,7 +45,7 @@ uv run python -m coppertrail.patterns run KEY         # basis line + top rows (-
 uv run python -m coppertrail.patterns baseline        # baseline definitions recomputed
 ```
 
-Collector notes:
+Collector notes (old GitHub pipeline, to be replaced by "our" database on the PC):
 - The data dir defaults to `$COPPERTRAIL_DATA`, or `./private` if that is unset. It is the data repo's `main` checkout; the copied data sits in `<data-dir>/window/` (not in git). Settings come from `<data-dir>/collector.toml` (`[blizzard]`, `[selection]`, `[retention]`, field names in `coppertrail/collector/config.py`).
 - Credentials: `BLIZZARD_CLIENT_ID` / `BLIZZARD_CLIENT_SECRET`, otherwise `blizzard.toml` (table `[blizzard]`, `client_id`, `client_secret`) in the config folder. Never log, print or commit either, nor the token.
 - Exit codes: 0 ok or not modified, 1 failed, 2 another run holds the lock (`<data-dir>/.lock`).
@@ -70,17 +83,12 @@ GUI notes:
 
 Coppertrail is a local auction house analysis tool for WoW Forever (Normal Alliance EU). It collects hourly summaries from Blizzard's Game Data API into a private Parquet archive, runs pattern jobs over it, and shows the results in a desktop GUI. Code, comments and conversation are in English.
 
-## Repositories: code public, data private
+## Repository: code public, data never in it
 
-| Repo | Visibility | Holds |
-|---|---|---|
-| https://github.com/Jacklog-dev/Coppertrail | public | Python package `coppertrail` (collector, pattern jobs, GUI) |
-| https://github.com/Jacklog-dev/Coppertrail_Database | private | `hourly.yml` (cron `35 * * * *`), `nightly.yml` (00:50 UTC), `collector.toml`, handover, the Parquet files on `main` |
-
-- **Never commit collected data to the public repo**: no auction data in a commit, test fixture, log line or Actions artifact. Fixtures are hand-made.
-- Blizzard's terms: data copied from the API is kept at most 30 days (Jack's reading: our hourly summaries and sales estimate are our own and kept; `summary_retention_days` can delete them if Blizzard says otherwise). Blizzard is named as the source without suggesting endorsement (README and the GUI status strip). At most 36,000 requests per hour.
-- The workflows run only in the private data repo. Nothing in the public repo may name or reference the private repo except the README's credit link target.
-- **Local layout:** `private/` is a clone of `Coppertrail_Database`, gitignored here (deliberately not a submodule). The handover and design package are in `private/handover/` (index in its `README.md`). Run git commands for data and handover inside `private/`. Until plan task 7.2 is done, the new clone sits in `private-next/` and `private/` is the old one.
+- https://github.com/Jacklog-dev/Coppertrail (public) holds the code: `coppertrail` (collector, pattern jobs, GUI) and `pi/`. The data repository is deleted; there are no workflows that collect data.
+- **Never commit collected data**: no auction data in a commit, test fixture, log line or artifact. Fixtures are hand-made.
+- Blizzard's terms: data copied from the API (listings, item details) is kept at most 30 days; that is the Pi's raw data database. Jack's reading: what Coppertrail concludes from it (hourly summaries, sales estimate) is our own and kept forever in "our" database. Blizzard is named as the source without suggesting endorsement (README and the GUI status strip). At most 36,000 requests per hour.
+- **Local layout:** `private/` (gitignored) is a local folder with the handover and design package in `private/handover/` (index in its `README.md`); its GitHub repo is gone.
 
 ## Architecture (see HANDOVER sections 2, 8 and 8a)
 

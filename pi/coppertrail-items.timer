@@ -1,0 +1,10 @@
+[Unit]
+Description=Coppertrail: item details every hour at :00 (stops at :20, before the :27 listings run)
+
+[Timer]
+OnCalendar=*-*-* *:00:00 UTC
+AccuracySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
