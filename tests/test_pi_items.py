@@ -268,3 +268,42 @@ def test_item_log_has_no_secret_or_body(tmp_path, capsys):
     out = capsys.readouterr().out
     for text in (SECRET, TOKEN, "Made-up Cloth"):
         assert text not in out
+
+
+def test_one_failing_item_does_not_block_others(tmp_path, capsys):
+    seed_listings(tmp_path)
+    conn = FakeConn(
+        {
+            ("static-forever-eu", 2589): [Answer(403)],
+            ("static-forever-eu", 2592): [ok()],
+            ("static-forever-eu", 7909): [ok()],
+        }
+    )
+    assert raw.run_items(item_client(conn), db(tmp_path), now=lambda: NOW) is False
+    assert rows(db(tmp_path), "SELECT item_id FROM item ORDER BY item_id") == [(2592,), (7909,)]
+    assert "item 2589: failed (403)" in capsys.readouterr().out
+
+
+def test_token_failure_ends_item_run(tmp_path):
+    seed_listings(tmp_path)
+
+    class NoToken:
+        def __call__(self, req, timeout=None):
+            raise OSError("down")
+
+    client = raw.Client("id", SECRET, opener=NoToken(), sleep=lambda s: None)
+    conn = FakeConn({})
+    ic = raw.ItemClient(client, connect=lambda: conn, sleep=lambda s: None)
+    assert raw.run_items(ic, db(tmp_path), now=lambda: NOW) is False
+    assert conn.requests == []
+
+
+def test_item_retry_after_is_capped():
+    conn = FakeConn(
+        {("static-forever-eu", 1): [Answer(429, headers={"Retry-After": "3600"}), ok()]}
+    )
+    slept = []
+    client = raw.Client("id", SECRET, opener=TokenOnly(), sleep=lambda s: None)
+    ic = raw.ItemClient(client, connect=lambda: conn, sleep=slept.append)
+    assert ic.lookup(1)[0] == 200
+    assert slept == [raw.MAX_RETRY_AFTER_S]

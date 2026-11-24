@@ -365,3 +365,47 @@ def test_missing_credentials_exit_1(tmp_path, monkeypatch, capsys):
 @pytest.mark.parametrize("text", ["x", None])
 def test_retry_after_falls_back(text):
     assert raw._retry_after(text, 7.0) == 7.0
+
+
+class CutOff(Resp):
+    def read(self):
+        import http.client
+
+        raise http.client.IncompleteRead(b"partial", 1000)
+
+
+def test_cut_off_read_is_retried(tmp_path):
+    cut = CutOff(b"", {"Content-Encoding": "gzip"})
+    fake = FakeBlizzard({"items": [cut, snapshot(ITEMS)], "commodities": [snapshot(COMMODITIES)]})
+    assert raw.collect(client(fake), db(tmp_path), now=lambda: FETCHED, wait=False)
+    assert rows(db(tmp_path), "SELECT count(*) FROM snapshot") == [(2,)]
+
+
+def test_collect_waits_for_the_lock(tmp_path, monkeypatch):
+    answers = [None, None, object()]
+    monkeypatch.setattr(raw, "_lock", lambda db: answers.pop(0))
+    slept = []
+    clock = iter([datetime(2026, 11, 24, 13, m, tzinfo=UTC) for m in (27, 27, 28, 29)])
+    held = type("H", (), {"close": lambda self: None})()
+    answers[-1] = held
+    code = raw._locked(
+        db(tmp_path),
+        lambda: True,
+        wait_until_minute=35,
+        now=lambda: next(clock),
+        sleep=slept.append,
+    )
+    assert code == 0 and len(slept) == 2
+
+
+def test_lock_wait_gives_up_at_the_minute(tmp_path, monkeypatch):
+    monkeypatch.setattr(raw, "_lock", lambda db: None)
+    clock = iter([datetime(2026, 11, 24, 13, m, tzinfo=UTC) for m in (27, 34, 36)])
+    code = raw._locked(
+        db(tmp_path),
+        lambda: True,
+        wait_until_minute=35,
+        now=lambda: next(clock),
+        sleep=lambda s: None,
+    )
+    assert code == 2

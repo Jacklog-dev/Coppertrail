@@ -52,6 +52,8 @@ KEEP_DAYS = 30
 RETRY_EVERY_S = 300
 LAST_MINUTE = 55
 _RETRY = {429, 500, 502, 503, 504}
+MAX_RETRY_AFTER_S = 60.0
+LOCK_WAIT_MINUTE = 35  # collect waits this long for an overrunning items run
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS snapshot (
@@ -80,6 +82,10 @@ CREATE INDEX IF NOT EXISTS item_by_id ON item (item_id, fetched_at);
 
 class FetchError(Exception):
     """A failed request. The message never carries a credential or the token."""
+
+
+class ItemError(FetchError):
+    """One item lookup failed; the next item may still work."""
 
 
 def log(msg: str) -> None:
@@ -231,7 +237,13 @@ class Client:
                 self._token = json.loads(r.read())["access_token"]
         except urllib.error.HTTPError as exc:
             raise FetchError(f"token request failed: HTTP {exc.code}") from None
-        except (urllib.error.URLError, OSError, KeyError, ValueError) as exc:
+        except (
+            urllib.error.URLError,
+            http.client.HTTPException,
+            OSError,
+            KeyError,
+            ValueError,
+        ) as exc:
             raise FetchError(f"token request failed: {type(exc).__name__}") from None
         return self._token
 
@@ -273,7 +285,7 @@ class Client:
                 wait = _retry_after(exc.headers.get("Retry-After"), 2.0**attempt * 5)
                 log(f"{endpoint}: HTTP {exc.code}, waiting {wait:.0f}s")
                 self._sleep(wait)
-            except (urllib.error.URLError, OSError, ValueError) as exc:
+            except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as exc:
                 status = type(exc).__name__
                 log(f"{endpoint}: {status}, retrying")
                 self._sleep(2.0**attempt * 5)
@@ -282,7 +294,7 @@ class Client:
 
 def _retry_after(value: str | None, default: float) -> float:
     try:
-        return max(0.0, float(value)) if value else default
+        return min(MAX_RETRY_AFTER_S, max(0.0, float(value))) if value else default
     except ValueError:
         return default
 
@@ -374,6 +386,7 @@ REFRESH_DAYS = 25
 RETRY_404_DAYS = 7
 ITEM_LAST_MINUTE = 20
 ITEM_NAMESPACES = ("static-forever-eu", "static-classic1x-eu")
+MAX_ITEM_FAILURES = 5  # in a row: Blizzard is in trouble, stop for this hour
 
 
 def item_ids(body: bytes, encoding: str) -> set[int]:
@@ -473,7 +486,7 @@ class ItemClient:
             if status not in _RETRY:
                 break
             self._sleep(_retry_after(resp.getheader("Retry-After"), 2.0**attempt * 5))
-        raise FetchError(f"item {item_id}: failed ({status})")
+        raise ItemError(f"item {item_id}: failed ({status})")
 
     def lookup(self, item_id: int) -> tuple[int, str | None, bytes | None, str | None]:
         """(status, namespace, body, encoding): the first namespace that knows the item,
@@ -497,7 +510,7 @@ def run_items(
     if deadline is None:
         deadline = start.replace(minute=ITEM_LAST_MINUTE, second=0, microsecond=0)
     con = connect(db)
-    done = found = 0
+    done = found = failed = 0
     ok = True
     try:
         due = due_items(con, listed_ids(con), start)
@@ -506,10 +519,19 @@ def run_items(
                 break
             try:
                 status, namespace, body, encoding = items.lookup(item_id)
+            except ItemError as exc:
+                log(str(exc))  # skip this one; it stays due and is tried next hour
+                ok = False
+                failed += 1
+                if failed >= MAX_ITEM_FAILURES:
+                    log("items: too many failed lookups in a row, stopping")
+                    break
+                continue
             except FetchError as exc:
-                log(str(exc))
+                log(str(exc))  # token or connection trouble: stop for this hour
                 ok = False
                 break
+            failed = 0
             store_item(con, item_id, namespace, status, body, encoding, now())
             done += 1
             found += status == 200
@@ -608,11 +630,23 @@ def _credentials() -> tuple[str, str] | None:
     return client_id, client_secret
 
 
-def _locked(db: Path, run: Callable[[], bool]) -> int:
-    lock = _lock(db)
-    if lock is None:
-        log("another run holds the lock")
-        return 2
+def _locked(
+    db: Path,
+    run: Callable[[], bool],
+    wait_until_minute: int | None = None,
+    now: Callable[[], datetime] = lambda: datetime.now(UTC),
+    sleep: Callable[[float], None] = time.sleep,
+) -> int:
+    """Run under the lock. With `wait_until_minute`, wait for a held lock until that
+    minute of the hour instead of giving up at once."""
+    start = now()
+    while (lock := _lock(db)) is None:
+        if wait_until_minute is None or now() >= start.replace(
+            minute=wait_until_minute, second=0, microsecond=0
+        ):
+            log("another run holds the lock")
+            return 2
+        sleep(10)
     try:
         return 0 if run() else 1
     finally:
@@ -668,7 +702,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "items":
         return _locked(db, lambda: run_items(ItemClient(client), db))
-    return _locked(db, run_collect)
+    return _locked(db, run_collect, wait_until_minute=LOCK_WAIT_MINUTE)
 
 
 if __name__ == "__main__":
