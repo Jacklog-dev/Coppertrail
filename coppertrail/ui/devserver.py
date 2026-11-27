@@ -55,8 +55,6 @@ def _static_file(url_path: str) -> Path | None:
 
 def _handler(bridge: Bridge) -> type[BaseHTTPRequestHandler]:
     exposed = frozenset(type(bridge).EXPOSED)
-    unlocked = frozenset(getattr(type(bridge), "UNLOCKED", ()))  # they lock for themselves
-    lock = bridge.lock  # the bridge is not thread-safe; one call at a time
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format, *args):  # noqa: A002
@@ -111,11 +109,7 @@ def _handler(bridge: Bridge) -> type[BaseHTTPRequestHandler]:
                 length = int(self.headers.get("Content-Length") or 0)
                 raw = json.loads(self.rfile.read(length) or b"{}")
                 args = raw.get("args", [])
-                if name in unlocked:
-                    result = getattr(bridge, name)(*args)
-                else:
-                    with lock:
-                        result = getattr(bridge, name)(*args)
+                result = getattr(bridge, name)(*args)  # the bridge is thread-safe
             except Exception as exc:  # noqa: BLE001 - reported to the page, like pywebview does
                 self._json(
                     HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"{type(exc).__name__}: {exc}"}

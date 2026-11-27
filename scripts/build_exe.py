@@ -22,7 +22,8 @@ EXE = DIST / "Coppertrail.exe"
 # Data formats anywhere (outside the web folder libraries may ship .json metadata, such as
 # pythonnet's Python.Runtime.deps.json, so .json is only refused there).
 FORBIDDEN_SUFFIXES = (
-    ".parquet", ".duckdb", ".duckdb.wal", ".csv", ".arrow", ".feather", ".xlsx",
+    ".parquet", ".duckdb", ".duckdb.wal", ".csv", ".arrow", ".feather", ".xlsx", ".sqlite",
+    ".sqlite-wal", ".sqlite-shm", ".db",
 )  # fmt: skip
 FORBIDDEN_NAMES = ("pyside", "pyqt", "qtpy", "pyqtgraph", "qt5core", "qt6core")
 # Pure-Python modules inside the PYZ (lower case prefixes of the dotted names).

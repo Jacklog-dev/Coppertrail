@@ -18,15 +18,15 @@ def post(url, payload):
 
 
 @pytest.fixture
-def server(archive, config_dir):
-    srv, url = serve(Bridge(archive))
+def server(tmp_path):
+    srv, url = serve(Bridge(tmp_path / "our.sqlite"))
     yield url
     srv.shutdown()
     srv.server_close()
 
 
-def test_binds_localhost_only(archive, config_dir):
-    srv, url = serve(Bridge(archive))
+def test_binds_localhost_only(tmp_path):
+    srv, url = serve(Bridge(tmp_path / "our.sqlite"))
     try:
         assert url.startswith("http://127.0.0.1:") and url.endswith("/")
         assert srv.server_address[0] == "127.0.0.1"
@@ -44,17 +44,15 @@ def test_serves_static_files(server):
 
 
 def test_calls_bridge(server):
-    body = post(server + "api/state", {"args": []})
-    assert body["result"]["items"]["total"] == 9
-    body = post(server + "api/set_filters", {"args": [{"min_sales": 50}]})
-    assert body["result"]["activeLabel"] == "1 filter active"
-    body = post(server + "api/match_names", {"args": [["Black Lotus"]]})
-    assert body["result"]["ids"] == [13468]
+    body = post(server + "api/items", {"args": []})
+    assert body["result"] == {"at": None, "rows": []}
+    body = post(server + "api/status", {"args": []})
+    assert body["result"]["hours"] == 0 and body["result"]["syncing"] is False
 
 
 def test_bridge_errors_are_500(server):
     with pytest.raises(HTTPError) as err:
-        post(server + "api/set_filters", {"args": ["not a dict"]})
+        post(server + "api/item", {"args": ["not a number"]})
     assert err.value.code == 500
     assert "error" in json.loads(err.value.read().decode("utf-8"))
 
@@ -69,7 +67,7 @@ def test_no_files_outside_web(server, path):  # Review Focus 4
     assert err.value.code == 404
 
 
-@pytest.mark.parametrize("name", ["_load", "__init__", "EXPOSED", "nope", "state/../x"])
+@pytest.mark.parametrize("name", ["_con", "__init__", "EXPOSED", "nope", "status/../x", "wait"])
 def test_only_exposed_methods(server, name):  # Review Focus 4
     with pytest.raises(HTTPError) as err:
         post(server + "api/" + name, {"args": []})

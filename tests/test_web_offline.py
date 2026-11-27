@@ -20,7 +20,9 @@ OWN_SOURCES = [
 
 
 def test_there_are_sources():
-    assert {"index.html", "base.css", "components.css", "api.js"} <= {f.name for f in OWN_SOURCES}
+    assert {"index.html", "base.css", "app.css", "api.js", "main.js", "chart.js"} <= {
+        f.name for f in OWN_SOURCES
+    }
 
 
 def test_web_loads_nothing_remote():

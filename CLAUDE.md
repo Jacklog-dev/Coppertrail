@@ -10,6 +10,7 @@ Coppertrail is a local auction house tool for WoW Forever (Normal Alliance EU). 
 
 - Two separate databases, never linked: the Pi's raw data database (Blizzard's data as sent, 30 days) and "our" database on the PC (our own results, kept forever). Both use **SQLite** (Jack: one technology for both). The PC only gets what the Pi's `export` hands out.
 - **First step, and the only scope for now:** our database on the PC, a listings overview (every listed item with its current lowest price) and an item detail (its lowest price and an hourly chart of it). Only the lowest price matters. Item names come with the item details in the export; the PC keeps the latest copy.
+- Built (2026-11-25): `coppertrail/db.py` (our database, `%APPDATA%\Coppertrail\coppertrail.sqlite`: `price(item_id, at, low)` per hour, `hour`, `name`, `bookmark`), `coppertrail/sync.py` (SSH export -> lowest price per item and hour, names; `$COPPERTRAIL_PI` overrides the host), and one GUI screen: item list with search and sort, item detail with price, change and an hourly chart (`ui/bridge.py`, `web/js/main.js`, `web/js/chart.js`, `web/css/app.css`).
 - Work one small step at a time. Ask Jack only what changes the current step.
 - Branches: session branches merge into `dev`; `main` is a release (major version bump, exe, GitHub tag) and only on Jack's call.
 
@@ -39,9 +40,10 @@ uv sync                                   # create .venv, install deps and dev t
 uv run pytest -q                          # tests (offline, mocked HTTP)
 uv run ruff check .                       # lint
 uv run ruff format .                      # format
-uv run python -m coppertrail.ui                       # the GUI window
+uv run python -m coppertrail.sync                     # sync our database from the Pi once
+uv run python -m coppertrail.ui                       # the GUI window (syncs at start; --no-sync, --db FILE)
 uv run python -m coppertrail.ui --dev --port 8765     # serve the page on 127.0.0.1 for a normal browser
-uv run python -m coppertrail.ui --screenshot shot.png # headless Edge screenshot
+uv run python -m coppertrail.ui --screenshot shot.png # headless Edge screenshot (--item ID opens a detail)
 uv run python -m coppertrail.ui.webtheme              # regenerate web/css/tokens.css after editing tokens.py
 uv run python scripts/build_exe.py                    # Windows build: dist/Coppertrail.exe
 ```

@@ -1,17 +1,12 @@
 [project]
 name = "coppertrail"
 version = "0.1.0"
-description = "Local auction house analysis for WoW Forever. Data from Blizzard's Game Data API."
+description = "Local auction house prices for WoW Forever. Data from Blizzard's Game Data API."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "httpx>=0.27",
-    "pyarrow>=17",
-    "duckdb>=2.0",
     "tzdata",
-    "pandas>=2.2",
-    "numpy>=2",
 ]
 
 [project.optional-dependencies]

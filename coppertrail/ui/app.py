@@ -1,20 +1,17 @@
 """The desktop app: a pywebview window showing `web/index.html`, driven by the bridge.
 
-    python -m coppertrail.ui [--data-dir DIR] [--sample] [--dev | --screenshot PNG] [--size WxH]
+    python -m coppertrail.ui [--db FILE] [--dev | --screenshot PNG] [--size WxH] [--no-sync]
 
-pywebview uses Edge WebView2 on Windows and GTK on Linux; it is never asked for Qt.
+pywebview uses Edge WebView2 on Windows and GTK on Linux; it is never asked for Qt. On start
+the app syncs our database from the Pi in the background.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import sys
-import threading
 import time
 import webbrowser
-from collections.abc import Callable
-from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -22,12 +19,6 @@ from coppertrail.ui import tokens
 from coppertrail.ui.bridge import Bridge
 from coppertrail.ui.devserver import WEB_DIR, serve
 from coppertrail.ui.format import CREDIT_URL
-from coppertrail.ui.pull import PullResult, prune_copied, run_pull
-
-Emit = Callable[[str, dict], None]
-VIEW_IDS = ("overview", "item", "patterns", "movers")  # web/js/navrail.js VIEWS
-FOLDER_CHANGED = "Pull finished, but the data folder changed meanwhile"
-PULL_CRASHED = "Pull failed · the data could not be reloaded"
 
 
 def gui_backend(platform: str = sys.platform) -> str | None:
@@ -47,90 +38,24 @@ def parse_size(text: str) -> tuple[int, int]:
 class AppApi(Bridge):
     """The bridge plus what only the native window can do."""
 
-    EXPOSED: ClassVar[tuple[str, ...]] = (*Bridge.EXPOSED, "pick_data_folder", "open_credit")
-
-    def __init__(self, data_dir: Path | None = None, *, emit: Emit | None = None, **kw) -> None:
-        super().__init__(data_dir, **kw)
-        self.window = None  # set by run_window() once the window exists
-        self._emit = emit or self._emit_to_window
-        self._pull_thread: threading.Thread | None = None
-
-    def _emit_to_window(self, event: str, payload: dict) -> None:
-        if self.window is not None:
-            name, data = json.dumps(event), json.dumps(payload, ensure_ascii=False)
-            self.window.evaluate_js(f"window.ct && ct.emit({name}, {data})")
-
-    def pick_data_folder(self) -> dict:
-        import webview
-
-        chosen = self.window.create_file_dialog(webview.FileDialog.FOLDER) if self.window else None
-        if not chosen:
-            return self.state()
-        return self.set_data_dir(str(chosen[0] if isinstance(chosen, list | tuple) else chosen))
+    EXPOSED: ClassVar[tuple[str, ...]] = (*Bridge.EXPOSED, "open_credit")
 
     def open_credit(self) -> None:
         webbrowser.open(CREDIT_URL)
-
-    def pull_latest(self) -> dict:
-        """Runs git in a worker thread and reports with a `pull` event when done."""
-        if self._pull_thread is not None and self._pull_thread.is_alive():
-            return {"started": False}
-
-        folder = self.data_dir
-
-        def work() -> None:
-            # Always emits, so the page never stays at "Pulling…". git runs unlocked; the
-            # reload and state() hold the bridge lock, like every JS call.
-            try:
-                result = run_pull(folder)
-                with self.lock:
-                    if result.ok and self.data_dir != folder:
-                        result = replace(result, ok=False, message=FOLDER_CHANGED)
-                    elif result.ok:
-                        self._load()
-                    payload = {
-                        **asdict(result),
-                        "failure": self.pull_failure(result),
-                        "state": self.state(),
-                    }
-            except Exception as exc:  # noqa: BLE001
-                crashed = PullResult(False, PULL_CRASHED, f"{type(exc).__name__}: {exc}")
-                payload = {**asdict(crashed)}
-                try:
-                    with self.lock:
-                        payload["failure"] = self.pull_failure(crashed)
-                        payload["state"] = self.state()
-                except Exception:  # noqa: BLE001
-                    pass
-            self._emit("pull", payload)
-
-        self._pull_thread = threading.Thread(target=work, daemon=True)
-        self._pull_thread.start()
-        return {"started": True}
-
-    def wait_for_pull(self, timeout: float | None = None) -> None:
-        if self._pull_thread is not None:
-            self._pull_thread.join(timeout)
 
 
 def js_facade(api: Bridge) -> Any:
     """An object with only the exposed methods, for pywebview's `js_api`.
 
     pywebview exposes every public attribute of `js_api` (and walks nested objects), so the
-    bridge itself would leak its item lists. Calls arrive on pywebview threads; one at a time,
-    except the `UNLOCKED` view methods, which copy their inputs under the lock themselves.
+    bridge itself is never handed over.
     """
-    lock = api.lock  # shared with the pull worker
-    unlocked = set(getattr(type(api), "UNLOCKED", ()))
 
     def wrap(name: str):
         method = getattr(api, name)
 
         def call(self, *args):
-            if name in unlocked:
-                return method(*args)
-            with lock:
-                return method(*args)
+            return method(*args)
 
         call.__name__ = name
         return call
@@ -139,26 +64,26 @@ def js_facade(api: Bridge) -> Any:
     return cls()
 
 
-def run_window(api: AppApi, page: str, size: tuple[int, int]) -> int:
+def run_window(api: AppApi, size: tuple[int, int]) -> int:
     import webview
 
     w, h = size
-    api.window = webview.create_window(
+    webview.create_window(
         "Coppertrail",
-        str(WEB_DIR / page),
+        str(WEB_DIR / "index.html"),
         js_api=js_facade(api),
         width=w,
         height=h,
-        min_size=(1280, 720),
+        min_size=(1024, 640),
         background_color=tokens.DARK["bg1"],
     )
     webview.start(gui=gui_backend(), http_server=True, private_mode=True)
     return 0
 
 
-def run_dev(bridge: Bridge, page: str, port: int) -> int:
+def run_dev(bridge: Bridge, port: int) -> int:
     server, url = serve(bridge, port)
-    print(f"Coppertrail dev server: {url}{page}  (Ctrl+C to stop)", flush=True)
+    print(f"Coppertrail dev server: {url}index.html  (Ctrl+C to stop)", flush=True)
     try:
         while True:
             time.sleep(1)
@@ -169,40 +94,9 @@ def run_dev(bridge: Bridge, page: str, port: int) -> int:
     return 0
 
 
-# Bridge calls each view makes on its first render, warmed before a screenshot (see warm()).
-WARM_CALLS = {
-    "overview": ("overview", "overview_events"),
-    "item": ("item_list",),
-    "patterns": ("patterns",),
-    "movers": ("movers", "mispricings_now"),
-}
-
-
-def warm(bridge: Bridge, page: str) -> None:
-    """Fills the bridge cache for the page's view before headless Edge opens it.
-
-    Edge's --screenshot fires when its virtual time budget runs out and re-lays the page out at
-    the full --window-size only if the page is idle by then. A view still waiting for a slow
-    call (What changed takes about 12 s on the full archive) is captured at Edge's smaller
-    start-up viewport, leaving an unpainted band below and right of the app. Cached answers
-    come back at once, so the page is idle in time. Failures are left to the page to show.
-    """
-    view, _, tab = (page.split("#", 1)[1] if "#" in page else "overview").partition("/")
-    for name in WARM_CALLS.get(view, ()):
-        try:
-            call = getattr(bridge, name)
-            result = call(tab) if tab and name in ("patterns", "movers") else call()
-            if name == "item_list" and result.get("rows"):
-                bridge.item_detail(result["rows"][0]["id"])
-        except Exception:  # noqa: BLE001, S112 - the page shows its own error
-            continue
-
-
 def run_screenshot(bridge: Bridge, page: str, out: Path, size: tuple[int, int]) -> int:
     from coppertrail.ui.screenshot import take
 
-    if not page.startswith("sample"):
-        warm(bridge, page)
     server, url = serve(bridge)
     try:
         return take(url + page, out, size)
@@ -214,33 +108,23 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m coppertrail.ui", description="Coppertrail desktop GUI."
     )
-    parser.add_argument("--data-dir", type=Path, help="data folder for this session only")
-    parser.add_argument("--sample", action="store_true", help="show the style sample page")
+    parser.add_argument("--db", type=Path, help="our database file (default: config folder)")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--dev", action="store_true", help="serve the page on 127.0.0.1 only")
     mode.add_argument("--screenshot", type=Path, metavar="PNG", help="render to a PNG and exit")
     parser.add_argument("--size", help="window or screenshot size, e.g. 1920x1080")
     parser.add_argument("--port", type=int, default=0, help="dev server port (default: any)")
-    parser.add_argument(
-        "--view", choices=VIEW_IDS, help="open this view first (overview, item, patterns, movers)"
-    )
-    parser.add_argument(
-        "--tab", metavar="KEY", help="with --view patterns: a pattern key; movers: 24h, 7d or 30d"
-    )
+    parser.add_argument("--item", type=int, help="with --screenshot: open this item's detail")
+    parser.add_argument("--no-sync", action="store_true", help="do not sync from the Pi at start")
     args = parser.parse_args(argv)
 
-    page = "sample.html" if args.sample else "index.html"
-    if args.view and not args.sample:
-        page += f"#{args.view}"
-        if args.view in ("patterns", "movers") and args.tab:
-            page += f"/{args.tab}"
-    if args.dev:
-        return run_dev(Bridge(args.data_dir), page, args.port)
     if args.screenshot:
-        size = parse_size(args.size or "1920x1080")
-        return run_screenshot(Bridge(args.data_dir), page, args.screenshot, size)
-    window_page = page.split("#")[0]  # a file path: the window always opens on the overview
-    api = AppApi(args.data_dir)
-    if api.data_dir:  # copied Blizzard data older than 30 days goes, even without a pull
-        prune_copied(Path(api.data_dir))
-    return run_window(api, window_page, parse_size(args.size or "1600x1000"))
+        page = "index.html" + (f"#item/{args.item}" if args.item else "")
+        size = parse_size(args.size or "1600x1000")
+        return run_screenshot(Bridge(args.db), page, args.screenshot, size)
+    api = AppApi(args.db)
+    if not args.no_sync:
+        api.sync_now()
+    if args.dev:
+        return run_dev(api, args.port)
+    return run_window(api, parse_size(args.size or "1600x1000"))

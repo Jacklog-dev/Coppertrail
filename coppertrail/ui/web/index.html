@@ -6,25 +6,35 @@
 <title>Coppertrail</title>
 <link rel="stylesheet" href="css/tokens.css">
 <link rel="stylesheet" href="css/base.css">
-<link rel="stylesheet" href="css/components.css">
-<link rel="stylesheet" href="css/frame.css">
-<link rel="stylesheet" href="css/filterbar.css">
-<link rel="stylesheet" href="css/groupeditor.css">
-<link rel="stylesheet" href="css/states.css">
-<link rel="stylesheet" href="css/layout.css">
-<link rel="stylesheet" href="css/views.css">
-<link rel="stylesheet" href="css/patterns.css">
-<link rel="stylesheet" href="css/movers.css">
 <link rel="stylesheet" href="vendor/uPlot.min.css">
+<link rel="stylesheet" href="css/app.css">
 </head>
 <body>
-<div class="app" id="app">
-  <nav class="navrail" id="navrail" aria-label="Views"></nav>
-  <div class="main">
-    <div class="filterbar" id="filterbar" role="toolbar" aria-label="Filters"></div>
-    <main class="view" id="view"></main>
+<div class="app">
+  <header class="top">
+    <h1>Coppertrail</h1>
+    <div class="ranges" id="kind" role="group" aria-label="Show">
+      <button class="btn on" type="button" data-kind="trade" aria-pressed="true">Trade goods</button>
+      <button class="btn" type="button" data-kind="all" aria-pressed="false">All items</button>
+    </div>
+    <input class="search" id="search" type="search" placeholder="Search items" autocomplete="off" spellcheck="false" aria-label="Search items">
+    <div class="sync">
+      <span class="sync-text" id="sync-text"></span>
+      <button class="btn" id="sync-btn" type="button">Sync</button>
+    </div>
+  </header>
+  <div class="body">
+    <section class="panel list" aria-label="Items">
+      <div class="list-head">
+        <button class="sort" id="sort-name" type="button">Item</button>
+        <button class="sort num" id="sort-price" type="button">Lowest price</button>
+      </div>
+      <div class="rows" id="rows" role="listbox" aria-label="Items"></div>
+      <div class="list-foot" id="list-foot"></div>
+    </section>
+    <section class="panel detail" id="detail" aria-live="polite"></section>
   </div>
-  <footer class="statusstrip" id="statusstrip"></footer>
+  <footer class="strip" id="strip"></footer>
 </div>
 <script type="module" src="js/main.js"></script>
 </body>

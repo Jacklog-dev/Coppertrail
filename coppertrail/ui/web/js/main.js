@@ -1,170 +1,198 @@
-// App entry: holds the state from the bridge and renders the frame from it.
-// The view area shows one of the HANDOVER 8b states when it applies, else the view:
-// loading > pull failed > no data yet > (stale banner +) filter matches nothing | view.
-import { call, inApp, on } from "./api.js";
-import { replace } from "./dom.js";
-import { preload } from "./icons.js";
-import { loadIcons } from "./itemicon.js";
-import * as navrail from "./navrail.js";
-import * as states from "./states.js";
-import * as statusstrip from "./statusstrip.js";
-import * as views from "./views.js";
-import * as filterbar from "./filterbar.js";
+// The one screen: item list on the left, the picked item's detail on the right.
+import { call } from "./api.js";
+import { coin, change } from "./coins.js";
+import { el, replace } from "./dom.js";
+import { loadIcons, withIcon } from "./itemicon.js";
+import { priceChart } from "./chart.js";
 
 const $ = (id) => document.getElementById(id);
-const START_VIEWS = ["overview", "item", "patterns", "movers"];
-const ui = {
-  // #item opens Item detail (--view); #patterns/<key> and #movers/<range> open a tab (--tab).
-  view: START_VIEWS.includes(location.hash.slice(1).split("/")[0]) ? location.hash.slice(1).split("/")[0] : "overview",
-  pulling: false,
-  error: null, // {message, detail} for the status strip
-  failure: null, // pull failure payload from the bridge: shows the "Pull failed" state
-  showLog: false,
-  loading: null, // text while the bridge reads a data folder
-  dismissed: null, // lastPoint of the stale banner the user closed
-  item: null, // item id shown in Item detail (and handed to Patterns)
-};
-// What views may do to the frame: switch view (optionally with an item), pick an item,
-// take a new state from a bridge call they made (add to group).
-const nav = {
-  get item() {
-    return ui.item;
-  },
-  // Counts go(view, {item}) calls, so a view can tell a fresh hand-over from a re-render.
-  handover: 0,
-  go(id, { item } = {}) {
-    if (item != null) {
-      ui.item = item;
-      nav.handover += 1;
-    }
-    selectView(id);
-  },
-  selectItem(id) {
-    ui.item = id;
-    render();
-  },
-  setState(next) {
-    render(next);
-  },
-};
-let state = null;
+const state = { rows: [], at: null, kind: "trade", query: "", sort: "name", dir: 1, selected: null, range: "7d" };
+let dropChart = null;
+let detailToken = 0;
 
-export function render(next = state) {
-  state = next;
-  navrail.render($("navrail"), { current: ui.view, onSelect: selectView, onDataFolder: chooseDataFolder });
-  if (state) filterbar.render($("filterbar"), state, render);
-  renderView();
-  statusstrip.render($("statusstrip"), state, { pulling: ui.pulling, error: ui.error, onPull: pull, onCredit: openCredit });
+// List ------------------------------------------------------------------------------------
+
+function visibleRows() {
+  const q = state.query.trim().toLowerCase();
+  const pool = state.kind === "trade" ? state.rows.filter((r) => r.trade) : state.rows;
+  const rows = q ? pool.filter((r) => r.name.toLowerCase().includes(q) || String(r.id) === q) : pool.slice();
+  const key = state.sort === "price" ? (r) => r.copper : (r) => r.name.toLowerCase();
+  rows.sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0) * state.dir);
+  return rows;
 }
 
-function renderView() {
-  const view = $("view");
-  if (ui.loading || !state) {
-    replace(view, states.loading({ text: ui.loading ?? "Reading the data folder…" }));
-    return;
+function renderList() {
+  const rows = visibleRows();
+  replace(
+    $("rows"),
+    rows.map((r) =>
+      el(
+        "div",
+        {
+          class: "row" + (r.id === state.selected ? " selected" : ""),
+          attrs: { role: "option", "data-id": r.id, "aria-selected": r.id === state.selected },
+          on: { click: () => select(r.id) },
+        },
+        withIcon(r.id, r.name),
+        el("span", { class: "num" }, coin(r.price)),
+      ),
+    ),
+  );
+  const total = state.kind === "trade" ? state.rows.filter((r) => r.trade).length : state.rows.length;
+  const noun = state.kind === "trade" ? "trade goods" : "items";
+  const shown = rows.length === total ? `${total.toLocaleString("en-US")} ${noun} listed` : `${rows.length.toLocaleString("en-US")} of ${total.toLocaleString("en-US")} ${noun}`;
+  $("list-foot").textContent = state.at ? `${shown} · prices of ${state.at}` : shown;
+  $("sort-name").classList.toggle("active", state.sort === "name");
+  $("sort-price").classList.toggle("active", state.sort === "price");
+  $("sort-name").textContent = "Item" + (state.sort === "name" ? (state.dir > 0 ? " ▲" : " ▼") : "");
+  $("sort-price").textContent = "Lowest price" + (state.sort === "price" ? (state.dir > 0 ? " ▲" : " ▼") : "");
+}
+
+function sortBy(key) {
+  state.dir = state.sort === key ? -state.dir : 1;
+  state.sort = key;
+  renderList();
+}
+
+async function loadItems() {
+  const data = await call("items");
+  state.rows = data.rows;
+  state.at = data.at;
+  renderList();
+}
+
+// Detail ----------------------------------------------------------------------------------
+
+function select(id) {
+  state.selected = id;
+  history.replaceState(null, "", `#item/${id}`);
+  for (const row of $("rows").children) {
+    const on = Number(row.dataset.id) === id;
+    row.classList.toggle("selected", on);
+    row.setAttribute("aria-selected", on);
   }
-  const st = state.status;
-  if (ui.failure) {
-    replace(view, states.pullFailed(ui.failure, { showLog: ui.showLog, canPull: st.canPull && !ui.pulling, onRetry: pull, onToggleLog: toggleLog }));
-    return;
+  loadDetail();
+}
+
+const RANGE_TEXT = { "24h": "24 h", "7d": "7 days", "30d": "30 days", all: "All" };
+
+async function loadDetail() {
+  const token = ++detailToken;
+  const d = await call("item", state.selected, state.range);
+  if (token !== detailToken) return; // a newer click won
+  if (dropChart) dropChart();
+  dropChart = null;
+
+  const readout = el("div", { class: "readout" });
+  const chartBox = el("div", { class: "chart-wrap" });
+  const sub = el(
+    "div",
+    { class: "d-sub" },
+    d.change && el("span", {}, change(d.change.text, d.change.direction)),
+    el("span", { text: d.listed ? `Lowest listing at ${d.at}` : d.lastSeen ? `Not listed now · last seen ${d.lastSeen}` : "Not listed" }),
+  );
+  const ranges = el(
+    "div",
+    { class: "ranges", attrs: { role: "group", "aria-label": "Range" } },
+    d.ranges.map((r) =>
+      el("button", {
+        class: "btn" + (r === d.range ? " on" : ""),
+        text: RANGE_TEXT[r],
+        attrs: { type: "button", "aria-pressed": r === d.range },
+        on: { click: () => { state.range = r; loadDetail(); } },
+      }),
+    ),
+  );
+  const stats = el(
+    "div",
+    { class: "stats" },
+    el("span", {}, el("b", { text: `Lowest in ${RANGE_TEXT[d.range].toLowerCase()}` }), coin(d.low)),
+    el("span", {}, el("b", { text: `Highest in ${RANGE_TEXT[d.range].toLowerCase()}` }), coin(d.high)),
+  );
+  replace(
+    $("detail"),
+    withIcon(d.id, el("span", { class: "d-name", text: d.name }), true),
+    el("div", { class: "d-price" }, coin(d.price)),
+    sub,
+    ranges,
+    chartBox,
+    readout,
+    stats,
+  );
+  const idle = "Hover the chart to see a single hour.";
+  readout.textContent = idle;
+  dropChart = priceChart(chartBox, d.x, d.y, (text) => (readout.textContent = text ?? idle));
+}
+
+function emptyDetail() {
+  replace($("detail"), el("p", { class: "empty", text: state.rows.length ? "Pick an item to see its lowest price and history." : "No data yet." }));
+}
+
+// Sync and status -------------------------------------------------------------------------
+
+let syncing = false;
+
+function showStatus(s) {
+  const text = $("sync-text");
+  text.classList.toggle("error", !s.syncing && !s.ok);
+  if (s.syncing) {
+    text.textContent = s.total ? `Syncing from the Pi · ${s.done} of ${s.total} snapshots` : "Syncing from the Pi…";
+  } else if (!s.ok && s.message) {
+    text.textContent = s.message;
+  } else {
+    text.textContent = s.last ? `Latest hour ${s.last}` : "No data yet";
   }
-  if (st.empty) {
-    replace(view, states.noData({ dataDir: state.dataDir, status: st, pulling: ui.pulling, onSetDir: setDataDir, onChange: chooseDataFolder, onPull: pull }));
-    return;
+  $("sync-btn").disabled = s.syncing;
+  const span = s.hours ? `${s.hours.toLocaleString("en-US")} hours · ${s.first} – ${s.last}` : "";
+  replace($("strip"), el("span", { text: s.credit }), el("span", { class: "right", text: span }));
+}
+
+async function poll() {
+  const s = await call("status");
+  showStatus(s);
+  if (syncing && !s.syncing) {
+    // a sync just finished: reload what it changed
+    await loadItems();
+    if (state.selected != null) loadDetail();
+    else emptyDetail();
   }
-  const banner =
-    st.banner && ui.dismissed !== st.lastPoint
-      ? states.staleBanner({ banner: st.banner, status: st, pulling: ui.pulling, onPull: pull, onDismiss: dismissBanner })
-      : null;
-  if (state.noMatch) {
-    replace(view, banner, states.noMatch(state.noMatch, { onClear: (partial) => filterChange(partial), onReset: () => filterChange(null) }));
-    return;
+  syncing = s.syncing;
+  setTimeout(poll, s.syncing ? 1000 : 30000);
+}
+
+async function syncNow() {
+  showStatus(await call("sync_now"));
+  syncing = true;
+}
+
+// Start -----------------------------------------------------------------------------------
+
+async function start() {
+  $("search").addEventListener("input", (e) => {
+    state.query = e.target.value;
+    renderList();
+  });
+  for (const btn of $("kind").children) {
+    btn.addEventListener("click", () => {
+      state.kind = btn.dataset.kind;
+      for (const b of $("kind").children) {
+        b.classList.toggle("on", b === btn);
+        b.setAttribute("aria-pressed", b === btn);
+      }
+      renderList();
+    });
   }
-  views.render(view, state, ui.view, banner, nav);
+  $("sort-name").addEventListener("click", () => sortBy("name"));
+  $("sort-price").addEventListener("click", () => sortBy("price"));
+  $("sync-btn").addEventListener("click", syncNow);
+  setInterval(syncNow, 30 * 60 * 1000); // new hours arrive once an hour
+
+  await loadIcons();
+  await loadItems();
+  const m = location.hash.match(/^#item\/(\d+)$/);
+  if (m) select(Number(m[1]));
+  else emptyDetail();
+  poll();
 }
 
-function selectView(id) {
-  ui.view = id;
-  ui.failure = null; // picking a view leaves the "Pull failed" state
-  render();
-}
-
-function toggleLog() {
-  ui.showLog = !ui.showLog;
-  render();
-}
-
-function dismissBanner() {
-  ui.dismissed = state.status.lastPoint;
-  render();
-}
-
-function filterChange(partial) {
-  return partial ? filterbar.setFilters(partial) : filterbar.resetFilters();
-}
-
-/** Runs a bridge call that re-reads the data folder, with the loading state meanwhile (text null: none). */
-async function withLoading(text, work) {
-  ui.loading = text;
-  if (text) render();
-  try {
-    const next = await work();
-    ui.loading = null;
-    ui.failure = null;
-    render(next ?? state);
-  } catch (err) {
-    ui.loading = null;
-    ui.error = { message: "Could not open that folder", detail: String(err) };
-    render();
-  }
-}
-
-function setDataDir(path) {
-  return withLoading("Reading the data folder…", () => call("set_data_dir", path));
-}
-
-async function chooseDataFolder() {
-  if (await inApp()) {
-    // One call opens the native dialog and reads the chosen folder; a loading state here
-    // would show behind the dialog (and on cancel), so there is none.
-    return withLoading(null, () => call("pick_data_folder"));
-  }
-  const path = window.prompt("Data folder (dev mode)", state?.dataDir ?? "");
-  if (path) return setDataDir(path);
-}
-
-function finishPull(result) {
-  ui.pulling = false;
-  ui.error = result.ok ? null : { message: result.message, detail: result.detail };
-  ui.failure = result.ok ? null : (result.failure ?? null);
-  ui.showLog = false;
-  render(result.state ?? state);
-}
-
-async function pull() {
-  ui.pulling = true;
-  ui.error = null;
-  render();
-  try {
-    const result = await call("pull_latest");
-    if ("started" in result) {
-      if (!result.started) ui.pulling = false; // already running
-      return; // the app reports with a "pull" event
-    }
-    finishPull({ ...result, state: result.ok ? await call("state") : state }); // dev server: synchronous
-  } catch (err) {
-    finishPull({ ok: false, message: "Pull failed", detail: String(err) });
-  }
-}
-on("pull", finishPull);
-
-async function openCredit(event) {
-  event.preventDefault(); // synchronously, before any await, or the link opens as well
-  if (await inApp()) call("open_credit"); // the system browser, never inside the app window
-  else window.open(state?.creditUrl ?? event.currentTarget.href, "_blank", "noopener");
-}
-
-await preload("overview", "item", "patterns", "movers", "folder", "download", "external", "refresh", "clock", "sliders", "reset", "zoom", "search", "star", "chevron");
-render(); // loading state until the bridge answers
-const [first] = await Promise.all([call("state"), loadIcons()]);
-render(first);
+start();

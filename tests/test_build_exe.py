@@ -4,7 +4,6 @@ import importlib.util
 import sys
 from pathlib import Path
 
-from coppertrail.query import catalog
 from coppertrail.ui import devserver
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,24 +24,6 @@ def test_web_dir_from_source():
 def test_web_dir_when_frozen(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
     assert devserver.web_dir() == tmp_path / "coppertrail" / "ui" / "web"
-
-
-def test_default_data_dir_from_source(monkeypatch):
-    monkeypatch.delenv("COPPERTRAIL_DATA", raising=False)
-    assert catalog.default_data_dir() == Path("private")
-
-
-def test_default_data_dir_when_frozen_is_next_to_the_exe(monkeypatch, tmp_path):
-    monkeypatch.delenv("COPPERTRAIL_DATA", raising=False)
-    monkeypatch.setattr(sys, "frozen", True, raising=False)
-    monkeypatch.setattr(sys, "executable", str(tmp_path / "Coppertrail.exe"))
-    assert catalog.default_data_dir() == tmp_path.resolve() / "private"
-
-
-def test_env_data_dir_wins_when_frozen(monkeypatch, tmp_path):
-    monkeypatch.setenv("COPPERTRAIL_DATA", str(tmp_path))
-    monkeypatch.setattr(sys, "frozen", True, raising=False)
-    assert catalog.default_data_dir() == tmp_path
 
 
 GOOD = [
@@ -93,6 +74,8 @@ def test_bundle_check_rejects_data_files():
         "somepkg\\export.xlsx",
         "somepkg\\hourly.csv",
         "private\\archive.duckdb",
+        "Coppertrail\\coppertrail.sqlite",
+        "Coppertrail\\coppertrail.sqlite-wal",
     ):
         assert check([*GOOD, name]), name
     # Libraries' own metadata outside the web folder is fine (pythonnet needs this one).
